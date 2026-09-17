@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+#
+# A native check that runs the mod through the engine's real script VM with a
+# fake server around it: player bodies, a floor of blocks, light, storage,
+# and recorders for edits, particles, loops and the HUD. Run from the
+# repository root, with the engine checkout beside it as ../Tiamot:
+#
+#     cargo run --manifest-path tests/native/Cargo.toml
+[package]
+name = "weather-native-check"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+tiamot-core = { path = "../../../Tiamot/crates/core" }

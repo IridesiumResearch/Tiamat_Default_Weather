@@ -1,0 +1,419 @@
+-- SPDX-License-Identifier: MIT
+--
+-- The Spindle adapter: its climate, READ FROM ITS EXPORTS where it offers
+-- them, and mirrored where it does not.
+--
+-- **The exports (engine 482958a, `game.export`).** The one channel between
+-- sandboxes: the Spindle publishes a table, and this mod, which names it in
+-- `optional_depends`, reads it. What this file uses, all optional:
+--
+--   version = 1
+--   humidity          a compiled density: the humidity noise, +/-0.5
+--   HUMIDITY_SPLIT    number: the wet/dry line in the humidity's units
+--   climate(x, z)     number 0..1: the ring temperature T = 4t(1-t), at the dome
+--   biome_under(x, y, z)   string: the biome id at a place, or nil
+--   add_soil_alias(block, dry)   treat `block` as `dry` in soil, owner and growth rules
+--   add_harmless_fluid(fluid)    a fluid that neither breaks leaves nor quenches lava
+--
+-- **The fault rules.** A function called through an export runs in the
+-- Spindle's own sandbox: if it errors, the Spindle is disabled, the call
+-- answers nil, and this mod carries on. So every call here treats nil (or a
+-- wrong type) as "use the mirror", and a Spindle that faults mid-session
+-- leaves weather on its mirrored climate rather than off. Once the Spindle is
+-- disabled its functions answer nil and run nothing; a density handle it
+-- exported is an opaque value this mod evaluates itself, and keeps working.
+--
+-- **Every constant marked MIRRORS is a copy**, used only where the export is
+-- missing. They are pinned by the `< 0.2` bound in mod.toml, and checked at
+-- runtime by `drift_check` (plan 3.4). Change them only together with the
+-- Spindle.
+
+local config = wx.config
+
+local M = { name = "spindle", hud_row = config.HUD_ROW_SPINDLE }
+
+-- **An engine older than 482958a has no exports at all**, and calling a nil
+-- field would disable this whole mod. On such an engine the mirror is the
+-- only climate there is, which is what this mod was written against.
+local EX = nil
+if type(game.exports) == "function" then
+    EX = game.exports("tiamot_default_world")
+else
+    game.log("tiamot_weather: this engine has no game.exports; using the mirrored climate")
+end
+if EX ~= nil and EX.version ~= 1 then
+    game.log("tiamot_weather: the Spindle exports version " .. tostring(EX.version)
+        .. ", not 1; using the mirrored climate")
+    EX = nil
+end
+
+-- A density handle is only usable if it answers like one: calling `:at` on
+-- anything else would be OUR error, and would disable this mod.
+local function density_or_nil(value)
+    if value == nil then
+        return nil
+    end
+    local ok, len = pcall(function() return value:len() end)
+    if ok and type(len) == "number" then
+        return value
+    end
+    return nil
+end
+
+local function fn_or_nil(value)
+    return type(value) == "function" and value or nil
+end
+
+local SPINDLE_HUMIDITY = EX and density_or_nil(EX.humidity)
+local SPINDLE_CLIMATE = EX and fn_or_nil(EX.climate)
+local SPINDLE_BIOME = EX and fn_or_nil(EX.biome_under)
+
+-- What this adapter is reading, for /weather and the log.
+M.sources = {
+    humidity = SPINDLE_HUMIDITY and "exported" or "mirrored",
+    warmth = SPINDLE_CLIMATE and "exported" or "mirrored",
+    biome = SPINDLE_BIOME and "exported" or "ground",
+}
+
+-- ------------------------------------------------------------ moisture
+
+-- MIRRORS tiamot_default_world 0.1.0 shape.lua: M.humidity()
+-- HUMIDITY_FREQ = 1/9000, HUMIDITY_OCTAVES = 2, HUMIDITY_STRETCH = { y = 1000 },
+-- NOISE_RANGE = 0.5, amplitude 1.0. A noise node's stream is hashed from its
+-- NAME alone, so this program is the Spindle's field, bit for bit.
+local HUMIDITY = game.density{
+    op = "clamp", low = -0.5, high = 0.5,
+    a = { op = "noise", stream = "humidity", frequency = 1 / 9000, octaves = 2,
+          amplitude = 1.0, stretch = { y = 1000 } },
+}
+-- MIRRORS shape.lua: HUMIDITY_SPLIT, the wet/dry line in the humidity's units.
+M.HUMIDITY_SPLIT = -0.05
+if EX and type(EX.HUMIDITY_SPLIT) == "number" then
+    M.HUMIDITY_SPLIT = EX.HUMIDITY_SPLIT
+end
+-- The mirror stays compiled even when the export is in use: comparing the
+-- two IS the drift check now, and it needs no loaded ground (below).
+local MIRROR_HUMIDITY = HUMIDITY
+if SPINDLE_HUMIDITY then
+    HUMIDITY = SPINDLE_HUMIDITY
+end
+
+-- MIRRORS shape.lua: R_DISC = 59 km, u = r^2 / R^2 in the Spindle's spelling.
+local INV_R2 = 1e-6 / (59.0 * 59.0)
+-- MIRRORS shape.lua: VERDANT_U, GLASS_U.
+local VERDANT_U = { 0.48 * 0.48, 0.60 * 0.60 }
+local GLASS_U = { 0.42 * 0.42, 0.48 * 0.48 }
+local BELT_RAMP_U = 0.008
+local VERDANT_WET = 0.12        -- this mod's own: the rain belt is wetter than its noise
+local GLASS_DRY = 0.15          -- and the glass waste drier
+
+local function u_of(x, z)
+    return (x * x + z * z) * INV_R2
+end
+
+-- 1 inside [lo, hi], 0 outside, a straight ramp of `ramp` either side.
+local function band(u, lo, hi, ramp)
+    if u <= lo - ramp or u >= hi + ramp then return 0.0 end
+    if u < lo then return (u - (lo - ramp)) / ramp end
+    if u > hi then return ((hi + ramp) - u) / ramp end
+    return 1.0
+end
+
+local function belt_bias(u)
+    return VERDANT_WET * band(u, VERDANT_U[1], VERDANT_U[2], BELT_RAMP_U)
+        - GLASS_DRY * band(u, GLASS_U[1], GLASS_U[2], BELT_RAMP_U)
+end
+
+-- The Spindle's humidity at a place, without the belts: what the drift
+-- check compares against the ground.
+function M.humidity(x, y, z)
+    return HUMIDITY:at(x, y, z, game.world_seed)
+end
+
+function M.moisture(x, y, z)
+    return M.humidity(x, y, z) + belt_bias(u_of(x, z))
+end
+
+-- ------------------------------------------------------------ warmth
+
+-- The Spindle's climate is T = 4t(1-t) in t = r/R = sqrt(u). A mod may not
+-- call sqrt (math.sqrt and ^ are platform library calls), so t is found by
+-- Newton's method: a FIXED number of steps of + - * /, the same IEEE
+-- operations in the same order on every machine. From 1, the error halves
+-- each step until it is near the root, then squares, so 20 steps are exact
+-- to the last bit for every u a player can stand at (1e-8 .. 4).
+local function root(u)
+    if u < 1e-8 then
+        return 0.0
+    end
+    local g = 1.0
+    for _ = 1, 20 do
+        g = 0.5 * (g + u / g)
+    end
+    return g
+end
+M.root = root
+
+-- MIRRORS shape.lua: Y0 = 11000, SUMMIT = 19 km, DOME_DROP = 2.5 km.
+-- World y of the base dome: H(u) = SUMMIT - u * (2*DROP - DROP*u), km -> blocks.
+local function dome_y(u)
+    return 11000 + (19.0 - u * (5.0 - 2.5 * u)) * 1000
+end
+
+-- The mirrored ring temperature, 0..1: what the Spindle exports as `climate`.
+local function mirrored_climate(x, z)
+    local t = root(u_of(x, z))
+    if t > 1.0 then
+        t = 1.0
+    end
+    return 4.0 * t * (1.0 - t)
+end
+
+function M.warmth(x, y, z)
+    local u = u_of(x, z)
+    local w = SPINDLE_CLIMATE and SPINDLE_CLIMATE(x, z)
+    if type(w) ~= "number" or w ~= w then
+        -- Not exported, or the Spindle faulted (nil), or nonsense: the mirror.
+        w = mirrored_climate(x, z)
+    end
+    local lapse = (y - dome_y(u)) / config.CLIMATE_LAPSE
+    local value = math.floor(1000 * w - config.BAND * lapse)
+    if value < 0 then return 0 end
+    if value > 1000 then return 1000 end
+    return value
+end
+
+-- ------------------------------------------------------------ wind
+
+-- Rim-ward, normalised by |x| + |z| rather than a square root.
+function M.wind(x, z, _tick)
+    local s = math.abs(x) + math.abs(z)
+    if s < 1 then
+        return { x = 1.0, z = 0.0 }
+    end
+    return { x = x / s, z = z / s }
+end
+
+-- ------------------------------------------------------------ the ground
+
+local function ids(names)
+    local set = {}
+    for _, name in ipairs(names) do
+        local ok, id = pcall(game.get_block_id, "tiamot_default_world:" .. name)
+        if ok and id ~= nil then
+            set[id] = true
+        end
+    end
+    return set
+end
+
+-- The Ember Ridge's ground: ash falls here instead of rain.
+local ASH_GROUND = ids({ "lava_rock", "pumice", "sulfur", "obsidian", "dark_sand" })
+-- Loose dry ground a strong front lifts.
+local DUST_GROUND = ids({ "sand", "salt" })
+-- Ground that is already snow: nothing settles on it (plan 3.2). The
+-- Spindle's Frozen Wastes run their own drift rule on their snow.
+M.covered = ids({ "snow", "ice", "clear_ice", "permafrost" })
+
+-- Where a puddle may be left: open ground, not canopies or plants. The
+-- Spindle's leaves rule removes a leaf block ANY fluid presses on (plan 7).
+M.puddle_ground = ids({ "dirt", "packed_dirt", "sand", "gravel", "stone", "mud", "dried_mud" })
+
+-- Fluids that boil rain away rather than take it in: a meeting makes steam.
+M.hot_fluids = { ["tiamot_default_world:lava"] = true }
+
+M.damp = {
+    ["tiamot_default_world:dirt"] = "tiamot_weather:damp_dirt",
+    ["tiamot_default_world:packed_dirt"] = "tiamot_weather:damp_packed_dirt",
+    ["tiamot_default_world:sand"] = "tiamot_weather:damp_sand",
+}
+
+-- ------------------------------------------------------------ switches the Spindle unlocks
+
+-- Damp ground needs the Spindle to treat damp dirt as dirt (plan 7.1), and
+-- puddles need its leaves rule to leave rainwater alone (plan 7.3). Each is
+-- an exported function this mod CALLS at load, which is the whole Spindle
+-- change: no damp id has to exist when the Spindle loads. `true` from the
+-- call is the Spindle saying it took it; anything else, including nil from a
+-- fault, leaves the feature off.
+local function called(name, ...)
+    local fn = EX and fn_or_nil(EX[name])
+    return fn ~= nil and fn(...) == true
+end
+
+function M.unlock_damp()
+    local all = true
+    for dry, damp in pairs(M.damp) do
+        all = called("add_soil_alias", damp, dry) and all
+    end
+    return all
+end
+
+function M.unlock_puddles()
+    return called("add_harmless_fluid", "tiamot_weather:rainwater")
+end
+
+local DUST_WARMTH = 700
+local GROUND_SCAN = 3
+
+-- Biomes, by the Spindle's own ids, whose weather is not rain.
+local ASH_BIOMES = { volcanic_foothills = true, obsidian_barrens = true, geyser_basin = true, cinder_coast = true }
+local DUST_BIOMES = { dunes = true, salt_pan = true, arid_mesa = true, badlands = true }
+
+-- What the place at feet (x, y, z) says about the weather: the Spindle's own
+-- biome where it exports one, the ground where it does not.
+function M.override(x, y, z)
+    if SPINDLE_BIOME then
+        local fx, fy, fz = math.floor(x), math.floor(y), math.floor(z)
+        local biome = SPINDLE_BIOME(fx, fy, fz)
+        if type(biome) == "string" then
+            local water = game.get_fluid{ x = fx, y = fy, z = fz }
+            local under = game.get_fluid{ x = fx, y = fy - 1, z = fz }
+            if (water and not water.empty) or (under and not under.empty) then
+                return "sea"
+            end
+            if ASH_BIOMES[biome] then
+                return "ash"
+            end
+            if DUST_BIOMES[biome] and M.warmth(x, y, z) > DUST_WARMTH
+                and M.moisture(x, y, z) < M.HUMIDITY_SPLIT then
+                return "dust"
+            end
+            return nil
+        end
+        -- nil: the Spindle faulted or had no answer; read the ground instead.
+    end
+    return M.ground_override(x, y, z)
+end
+
+-- The same question answered from the ground alone: the fallback.
+function M.ground_override(x, y, z)
+    local fx, fy, fz = math.floor(x), math.floor(y), math.floor(z)
+    local water = game.get_fluid{ x = fx, y = fy, z = fz }
+    local under = game.get_fluid{ x = fx, y = fy - 1, z = fz }
+    if (water and not water.empty) or (under and not under.empty) then
+        return "sea"
+    end
+    for dy = 1, GROUND_SCAN do
+        local b = game.get_block{ x = fx, y = fy - dy, z = fz }
+        if b == nil then
+            return nil
+        end
+        if b.occupancy ~= 0 then
+            if ASH_GROUND[b.material] then
+                return "ash"
+            end
+            if DUST_GROUND[b.material] and M.warmth(x, y, z) > DUST_WARMTH
+                and M.moisture(x, y, z) < M.HUMIDITY_SPLIT then
+                return "dust"
+            end
+            return nil
+        end
+    end
+    return nil
+end
+
+-- ------------------------------------------------------------ the drift check
+
+-- Plan 3.4. Owners from the Spindle's whereami.lua: wood that only the wet
+-- half grows, and ground only the dry half lays. Dirt says nothing, since
+-- both halves of the temperate ring lie on it.
+local WET_OWNERS = ids({ "oak_log", "birch_log" })
+local DRY_OWNERS = ids({ "packed_dirt" })
+local DRIFT_STEP = 48
+local DRIFT_REACH = 5            -- steps either side: an 11 x 11 grid
+local DRIFT_SCAN = 40
+local DRIFT_BLEND = 0.04         -- MIRRORS shape.lua HUMIDITY_BLEND: too near the split to judge
+
+-- **Against the exported fields**, when they are there: the mirror and the
+-- Spindle's own field sampled at the same points, which needs no loaded
+-- ground and answers exactly. A noise stream is hashed from its NAME, so two
+-- programs built the same way are the same field, and any difference means a
+-- constant here is stale.
+--
+-- Returns agreed, disagreed, judged, and a line naming the worst gap.
+local FIELD_STEP = 977              -- a prime, so the points do not land on a feature
+local FIELD_POINTS = 11
+local FIELD_TOLERANCE = 1e-6
+
+function M.field_check(x, y, z)
+    local agreed, disagreed = 0, 0
+    local worst, worst_at = 0.0, ""
+    local cx, cy, cz = math.floor(x), math.floor(y), math.floor(z)
+    for i = 0, FIELD_POINTS - 1 do
+        for k = 0, FIELD_POINTS - 1 do
+            local px = cx + (i - FIELD_POINTS // 2) * FIELD_STEP
+            local pz = cz + (k - FIELD_POINTS // 2) * FIELD_STEP
+            local gap = 0.0
+            if SPINDLE_HUMIDITY then
+                gap = math.abs(SPINDLE_HUMIDITY:at(px, cy, pz, game.world_seed)
+                    - MIRROR_HUMIDITY:at(px, cy, pz, game.world_seed))
+            end
+            if SPINDLE_CLIMATE then
+                local theirs = SPINDLE_CLIMATE(px, pz)
+                if type(theirs) == "number" then
+                    local climate_gap = math.abs(theirs - mirrored_climate(px, pz))
+                    if climate_gap > gap then
+                        gap = climate_gap
+                    end
+                end
+            end
+            if gap > worst then
+                worst, worst_at = gap, px .. "," .. pz
+            end
+            if gap <= FIELD_TOLERANCE then
+                agreed = agreed + 1
+            else
+                disagreed = disagreed + 1
+            end
+        end
+    end
+    return agreed, disagreed, agreed + disagreed,
+        string.format("worst gap %.9f at %s", worst, worst_at)
+end
+
+-- Whether there is anything exported to compare the mirror against.
+function M.has_exported_fields()
+    return SPINDLE_HUMIDITY ~= nil or SPINDLE_CLIMATE ~= nil
+end
+
+-- Samples loaded ground around (x, y, z). Returns agreed, disagreed, judged.
+-- The fallback when nothing is exported: the mirror against the ground the
+-- Spindle laid, which needs loaded chunks and only judges the wet/dry side.
+function M.drift_check(x, y, z)
+    local agreed, disagreed = 0, 0
+    local cx, cy, cz = math.floor(x), math.floor(y), math.floor(z)
+    for i = -DRIFT_REACH, DRIFT_REACH do
+        for k = -DRIFT_REACH, DRIFT_REACH do
+            local px, pz = cx + i * DRIFT_STEP, cz + k * DRIFT_STEP
+            local h = M.humidity(px, cy, pz)
+            if math.abs(h - M.HUMIDITY_SPLIT) > DRIFT_BLEND then
+                local said = nil
+                for dy = DRIFT_SCAN, -DRIFT_SCAN, -1 do
+                    local b = game.get_block{ x = px, y = cy + dy, z = pz }
+                    if b == nil then
+                        break
+                    end
+                    if WET_OWNERS[b.material] then
+                        said = "wet"
+                        break
+                    elseif DRY_OWNERS[b.material] then
+                        said = "dry"
+                        break
+                    end
+                end
+                if said ~= nil then
+                    local mirror = h > M.HUMIDITY_SPLIT and "wet" or "dry"
+                    if said == mirror then
+                        agreed = agreed + 1
+                    else
+                        disagreed = disagreed + 1
+                    end
+                end
+            end
+        end
+    end
+    return agreed, disagreed, agreed + disagreed
+end
+
+return M
