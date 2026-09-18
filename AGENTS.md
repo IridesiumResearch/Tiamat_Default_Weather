@@ -121,6 +121,14 @@ it, and returning `""` says you handled it. Return `nil` for blocks that are not
 yours, so the next mod — and in the end the engine's own "nothing selected"
 warning — gets its turn.
 
+**A HUD script's pictures must be registered: `game.register_picture{ file }`.**
+A dialog's tree is its own manifest and its pictures are fetched when it
+arrives, but a HUD script names a picture only when it draws one, so nothing
+had ever fetched the bytes and `hud.image` drew the "not arrived" box for ever.
+`register_picture` puts the file in a table the client fetches on join and
+answers its content hash in hex; `game.content_hash(file)` answers the hash
+alone, for a dialog's `image` or `nine_slice`. Neither hash is pasted by hand.
+
 **The top of a column is one call: `game.surface_at{ x, z, from, depth,
 skip_passable, skip_fluid }`.** Snow, rain, a spawn point, anything that has to
 find the ground as it is NOW — built on and dug since worldgen, which no
@@ -455,6 +463,61 @@ the defaults to be the world you would ship, because a player who does not
 open the dropdown gets them.
 
 Key on the UUID, never the display name (charter rule 13).
+
+### Clouds
+
+`game.register_clouds{ ... }` declares the deck once at load and
+`game.set_clouds(uuid, { cover, darkness })` says how much of it one player is
+under. The client draws it by marching a ray through a **field**, not by
+building cubes — which is why a deck can reach the horizon, drift and change
+shape without anything being rebuilt, and why you can fly up through one.
+
+Two things follow that are worth knowing before you design around them. A
+column of the deck is up to **two** intervals, which gives stepped undersides
+and a tower that mushrooms over its waist, but not a third lobe. And `darkness`
+hangs a dark haze under the deck as well as greying it: that, rather than
+`set_precipitation`, is what makes a storm read from outside it, because
+precipitation spawns around the player's own camera and cannot draw a curtain
+of rain over the next valley.
+
+The player owns the quality: a cloud setting in their own graphics options
+scales the deck's resolution and draw distance, down to off. The server is
+never told, and a mod must not assume its clouds are being drawn at all.
+
+### A look for the engine's own screens
+
+**The engine's own screens can wear your look.** The pause screen, the settings
+pages and the start screen are the client's, drawn in plain egui, and no Lua
+runs on the start screen at all — it is shown before any server exists. So a
+look is DATA: a `[theme]` table in your `mod.toml` naming a font, a nine-slice
+frame for sheets, one for buttons, and five colours.
+
+```toml
+[theme]
+font = "fonts/Cinzel.ttf"
+sheet = "art/frame_iron.png"
+button = "art/button_brass.png"
+
+[theme.colours]
+text = "#e8dcc0"
+heading = "#f0d890"
+background = "#1a1512"
+button = "#2a2018"
+accent = "#b08d57"
+```
+
+Every field is optional and anything you leave out stays the client's own, so a
+theme that is only a palette is a theme — and a theme cannot make a screen
+unreadable, because every part of it is an override with a default underneath.
+A frame's border is a THIRD of the image, the same rule `style.nine_slice`
+uses. **One theme applies at a time: the last mod in load order that declares
+one**, so a mod that depends on another paints over it.
+
+In a world the theme is pushed on join and its files ride the font and picture
+pipelines, so they are capped, isolated and fuzzed like any other pushed asset.
+On the start screen it is read from the mods installed locally — never from a
+cache of the last server's, which would mean decoding bytes a remote server
+chose before you had chosen to trust anything.
 
 ---
 
@@ -1115,9 +1178,27 @@ the whole generation path), `core_tools` (118, tools and actions), `core_gear`
 
 ## Limits worth knowing before you design around them
 
-Everything here is true as of 2026-09-16 and is the kind of thing that is
+Everything here is true as of 2026-09-18 and is the kind of thing that is
 cheaper to read than to discover. None of it is a rule the engine wants; each is
 work that has not been done, and each will move.
+
+**An open sheet covers the bottom of the screen, and your HUD has to say so.**
+The inventory, the pause screen and a mod's dialog are all one sheet: three
+quarters of the window's height, four by three, centred. That leaves an eighth
+of the window below it, and a HUD with more than a row or two along the bottom
+edge does not fit in it — hearts, food and warmth under an open inventory is
+what that looks like. Nothing the engine measures would tell it otherwise, so
+pass a `reserve` in the table form of `game.register_hud_script`, in the same
+virtual pixels your HUD draws in. Sheets rise to clear the tallest reserve any
+loaded mod asked for, and shrink only when there is no window left to rise into.
+
+**A widget's `size` is its length along its PARENT's direction**, and a
+container now measures its children by what they asked for rather than by what
+is in them. Before 2026-09-18 it only honoured `size` on a node that also set
+`cross_size`, so a column holding a row with `size = 52` measured that row at
+its contents' height, laid it out into that, and squashed everything inside it.
+If you have summed your children's sizes and set your own to work around this,
+you can stop; the workaround is harmless either way.
 
 **Fluid physics is per fluid.** `tick_rate`, `waterlogs_at` and `evaporates`
 are read from the fluid IN a block, so a slow lava beside a quick river and a

@@ -25,7 +25,7 @@ mods/tiamot_weather/        the mod (this is what the engine loads)
   controller.lua            weather(x, y, z, tick): the front, easing per square, overrides, the HUD line
   queue.lua                 the paced edit queue
   ground.lua                the sampler, snow layers, damp ground, puddles, both thaws
-  fx.lua                    the sky, the rain, the loops, lightning, particle clouds
+  fx.lua                    the sky, the rain, the loops, lightning, the cloud deck
   commands.lua              /weather
   exports.lua               what other mods may read: game.exports("tiamot_weather")
   hud.lua                   the client-side HUD script
@@ -85,9 +85,7 @@ engine has no operators yet.
   `add_soil_alias` or `add_harmless_fluid` and accepts the call. See
   [`docs/exports-contract.md`](docs/exports-contract.md), which also lists
   what Weather exports for other mods.
-- **Clouds are particle puffs**, seen within about 128 blocks, so there is no
-  cloud to the horizon. A real cloud deck is engine ask W2, the one thing on
-  the sheet not built. Everything else — the darkened sky, the fog, the rain
-  emitter, per-player loops, lightning — is the engine's own as of
-  2026-09-17.
+- **Nothing on the engine sheet is left unbuilt.** The cloud deck is the
+  engine's raymarch (2026-09-18), shaped after `docs/reference/`. How fine it
+  is drawn is each player's own graphics setting.
 - **Per-player particles and sound** need asks W4 and W5.

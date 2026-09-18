@@ -17,9 +17,11 @@
 --                      than restarted, so a storm can be nudged every tick
 --   flash              lightning, with the thunder delayed by its distance
 --
--- **Clouds are still particles** (ask W2 is the one thing not built): puffs
--- of the largest particle on a grid overhead, addressed to one player. They
--- are all this file emits now, so the particle budget is theirs alone.
+--   register_clouds    the cloud deck, once; the client marches it
+--   set_clouds         how much of it a player is under, how grey, and where
+--                      its floor is (following the Spindle's dome)
+--
+-- Nothing here emits particles any more.
 
 local config = wx.config
 local climate = wx.climate
@@ -88,7 +90,7 @@ game.register_sound{ id = "thunder", file = "sounds/thunder.wav", gain = 1.0, pi
 game.register_setting{
     id = "particles",
     name = "Weather particles",
-    description = "Rain, snow and clouds drawn around you. The storm's own sky is not affected.",
+    description = "Rain and snow drawn around you. The sky and the clouds are not affected; clouds have their own graphics setting.",
     options = { "off", "low", "full" },
     default = 2,
 }
@@ -256,117 +258,92 @@ end
 
 -- ------------------------------------------------------------ clouds
 
--- A fine noise the cloud cells are cut from, drifting with the front so the
--- sky moves the way the weather does. Its own stream, never a Spindle one.
-local CLOUD_NOISE = game.density{
-    op = "clamp", low = -0.5, high = 0.5,
-    a = { op = "noise", stream = "wx_clouds", frequency = config.CLOUD_FREQUENCY, octaves = 2, amplitude = 1.0 },
-}
+-- **The deck** (engine `register_clouds`, ask W2, 2026-09-18). The client
+-- marches a ray through a cloud FIELD and draws the cubes it hits, so the
+-- deck reaches the horizon, drifts and changes shape at no cost to rebuild.
+-- Shaped after the designer's references (docs/reference/): cubes of `cell`
+-- blocks whose surfaces break into smaller ones, flat bases, heaped tops,
+-- some towers, a blue-violet shade on the unlit side. The player's graphics
+-- settings decide how fine it is drawn, or whether at all.
+--
+-- It drifts with the weather fronts, which move along +x one block every
+-- DRIFT_TICKS, so the sky and the rain under it travel together.
+--
+-- On an engine older than the clouds (engine 57d9ec2), there are none.
+local HAS_CLOUDS = type(game.register_clouds) == "function" and type(game.set_clouds) == "function"
+M.has_clouds = HAS_CLOUDS
 
--- A kind's sky, as the LINE its cloud noise must clear and how grey a puff
--- is. The line is not a fraction: the noise is a two-octave fractal, so its
--- values bunch around zero, and a line of 0.3 leaves far less than a third of
--- the sky clouded. These are read off that distribution — 0.15 is a fair-
--- weather sky with a few clouds in it, -0.05 is half cloud, -0.5 is below
--- the noise's own floor and covers everything.
-local SKY_LINE = {
-    clear = { 0.15, 0.97 }, cloudy = { -0.05, 0.86 }, rain = { -0.25, 0.66 }, snow = { -0.25, 0.8 },
-    ash = { -0.25, 0.4 }, dust = { 0.05, 0.8 }, storm = { -0.51, 0.42 }, blizzard = { -0.51, 0.72 },
-    ash_storm = { -0.51, 0.3 },
-}
+-- The floor, in world y: CLOUD_ABOVE over the ground the climate knows, in
+-- steps of CLOUD_BASE_STEP so walking does not nudge the whole sky. On the
+-- Spindle the ground is a dome falling 2.5 km from the axis to the rim, so
+-- the floor is sent per player, from the dome under them.
+local function floor_at(x, z)
+    local ground = climate.surface_y(x, z)
+    local step = config.CLOUD_BASE_STEP
+    return (math.floor(ground + config.CLOUD_ABOVE) // step) * step
+end
+M.floor_at = floor_at
 
-local CELL = config.CLOUD_CELL
-local REACH = config.CLOUD_REACH
-local CLOUD_LIVE_PER_CELL = config.CLOUD_COUNT * config.CLOUD_LIFE * TICKS_PER_SECOND // config.CLOUD_PERIOD
-do
-    local reach = REACH / CELL + 0.5
-    local cells = math.floor(3.1416 * reach * reach)
-    assert(cells * CLOUD_LIVE_PER_CELL <= config.CLOUD_LIVE_MAX, string.format(
-        "clouds hold %d live particles, over the budget of %d", cells * CLOUD_LIVE_PER_CELL, config.CLOUD_LIVE_MAX))
-    assert(REACH * REACH + config.CLOUD_ABOVE * config.CLOUD_ABOVE <= 128 * 128,
-        "a cloud puff at the edge of CLOUD_REACH is past the 128-block send radius")
+if HAS_CLOUDS then
+    game.register_clouds{
+        base = floor_at(0, 0),
+        thickness = config.CLOUD_THICKNESS,
+        cell = config.CLOUD_CELL,
+        detail = config.CLOUD_DETAIL,
+        frequency = config.CLOUD_FREQUENCY,
+        octaves = config.CLOUD_OCTAVES,
+        towers = config.CLOUD_TOWERS,
+        drift = { x = TICKS_PER_SECOND / config.DRIFT_TICKS, z = 0 },
+        evolve = config.CLOUD_EVOLVE,
+        colour = { 1.0, 1.0, 1.0 },
+        shade = { 0.42, 0.44, 0.58 },
+    }
 end
 
--- Whether the sky has cloud over a cell now, and how grey: nil for clear sky.
--- The same answer for every player, so two players see one sky.
-function M.cloud_at(cell_x, cell_z, square, tick)
-    local kind = square and square.kind or "clear"
-    local intensity = square and square.intensity or 0
-    local line, grey = SKY_LINE[kind][1], SKY_LINE[kind][2]
-    -- A precipitating kind that has not eased in yet is only cloudy.
-    if controller.KINDS[kind].precip and intensity <= 0 then
-        line, grey = SKY_LINE.cloudy[1], SKY_LINE.cloudy[2]
-    end
-    local x, z = cell_x * CELL + CELL // 2, cell_z * CELL + CELL // 2
-    local drift = tick // config.DRIFT_TICKS
-    local n = CLOUD_NOISE:at(x - drift, tick / config.TICKS_PER_Y, z, game.world_seed)
-    -- The noise is CLAMPED to +/-0.5 and does sit exactly on the floor in
-    -- places, so a storm's line is -0.51, below the floor: every cell is
-    -- cloud, with no arithmetic close enough to go either way. (A line
-    -- computed as 0.45 - 0.95 * cover came out at -0.49999999999999994 and
-    -- left three cells of a full storm clear.)
-    if n < line then
-        return nil, n, line, kind
-    end
-    return grey, n, line, kind
-end
+-- How much of the sky each kind covers, and how grey. A precipitating kind
+-- eases from a cloudy sky to its own as its intensity rises, so the deck
+-- thickens and darkens as the rain arrives.
+M.CLOUDS = {
+    clear     = { cover = 0.15, darkness = 0.0 },
+    cloudy    = { cover = 0.55, darkness = 0.05 },
+    rain      = { cover = 0.80, darkness = 0.45 },
+    storm     = { cover = 1.00, darkness = 0.90 },
+    snow      = { cover = 0.80, darkness = 0.25 },
+    blizzard  = { cover = 1.00, darkness = 0.50 },
+    ash       = { cover = 0.75, darkness = 0.70 },
+    ash_storm = { cover = 1.00, darkness = 1.00 },
+    dust      = { cover = 0.30, darkness = 0.20 },
+}
 
-local function clouds(uuid, pos, own_square, share, was, tick)
-    was.cells = was.cells or {}
-    local cells = was.cells
-    local seen = {}
-    local r = REACH // CELL + 1
-    local pcx, pcz = math.floor(pos.x) // CELL, math.floor(pos.z) // CELL
-    -- Quantised to 16 blocks so walking up a hill does not lift the sky.
-    local base = (math.floor(pos.y) + config.CLOUD_ABOVE) // 16 * 16
-    for i = -r, r do
-        for k = -r, r do
-            local cx, cz = pcx + i, pcz + k
-            local dx = (cx * CELL + CELL // 2) - pos.x
-            local dz = (cz * CELL + CELL // 2) - pos.z
-            if dx * dx + dz * dz <= REACH * REACH then
-                local key = cx .. ":" .. cz
-                seen[key] = true
-                if tick >= (cells[key] or 0) then
-                    -- Staggered by cell, so a sky does not pulse all at once.
-                    cells[key] = tick + config.CLOUD_PERIOD - ((cx * 7 + cz * 13) % (config.CLOUD_PERIOD // 2))
-                    local sx, sz = controller.square_of(cx * CELL, cz * CELL)
-                    local square = controller.squares[controller.key_of(sx, sz)] or own_square
-                    local grey = M.cloud_at(cx, cz, square, tick)
-                    local count = share == 1 and config.CLOUD_COUNT // 2 or config.CLOUD_COUNT
-                    if grey and count > 0 then
-                        game.emit_particles{
-                            pos = { x = cx * CELL + CELL // 2, y = base, z = cz * CELL + CELL // 2 },
-                            count = count,
-                            colour = { r = grey, g = grey, b = math.min(1.0, grey + 0.03), a = config.CLOUD_ALPHA },
-                            size = 4.0,
-                            lifetime = config.CLOUD_LIFE,
-                            velocity = { x = TICKS_PER_SECOND / config.DRIFT_TICKS, y = 0, z = 0 },
-                            spread = 0.05,
-                            -- Packed into 28 of the cell's 40 blocks: a puff is
-                            -- about as much cloud as sky.
-                            area = { x = 14, y = 2, z = 14 },
-                            gravity = 0,
-                            collide = false,
-                            radius = 128,
-                            player = uuid,
-                        }
-                        M.stats.clouds = M.stats.clouds + 1
-                    end
-                end
-            end
-        end
+-- What each player was last sent, for /weather clouds.
+M.clouds_sent = {}
+
+local function clouds_for(uuid, where, square, was)
+    local row = M.CLOUDS[square.kind] or M.CLOUDS.clear
+    local cover, darkness = row.cover, row.darkness
+    if controller.KINDS[square.kind].precip then
+        local far = square.intensity / 1000
+        local from = M.CLOUDS.cloudy
+        cover = from.cover + (row.cover - from.cover) * far
+        darkness = from.darkness + (row.darkness - from.darkness) * far
     end
-    for key in pairs(cells) do
-        if not seen[key] then
-            cells[key] = nil
-        end
+    local base = floor_at(where.x, where.z)
+    local key = string.format("%.2f:%.2f:%d", cover, darkness, base)
+    if was.clouds == key then
+        return
     end
+    was.clouds = key
+    game.set_clouds(uuid, {
+        cover = cover,
+        darkness = darkness,
+        base = base,
+        ease_ticks = config.CLOUD_EASE_TICKS,
+    })
+    M.clouds_sent[uuid] = { cover = cover, darkness = darkness, base = base }
+    M.stats.clouds = M.stats.clouds + 1
 end
 
 -- ------------------------------------------------------------ the tick
-
-local since_clouds = 0
 
 -- Everything a player stands under, set when the weather is evaluated.
 controller.on_evaluated(function()
@@ -396,6 +373,9 @@ controller.on_evaluated(function()
             end
             sky_for(uuid, square, was)
             loop_for(uuid, square, was)
+            if HAS_CLOUDS then
+                clouds_for(uuid, where, square, was)
+            end
             if square.kind == "storm" and square.intensity > 0 then
                 strike(square, tick)
             end
@@ -403,39 +383,15 @@ controller.on_evaluated(function()
     end
 end)
 
-wx.on_tick(function(dt_ticks)
+wx.on_tick(function()
     thunder(wx.now)
-    since_clouds = since_clouds + dt_ticks
-    if since_clouds < config.CLOUD_SCAN_TICKS or game.world_seed == nil then
-        return
-    end
-    since_clouds = 0
-    local here = {}
-    for _, uuid in ipairs(controller.players()) do
-        here[uuid] = true
-        local pos = controller.position(uuid)
-        local share = share_of(uuid)
-        if pos and share > 0 then
-            local was = sent[uuid]
-            if was == nil then
-                was = {}
-                sent[uuid] = was
-            end
-            local sx, sz = controller.square_of(pos.x, pos.z)
-            clouds(uuid, pos, controller.squares[controller.key_of(sx, sz)], share, was, wx.now)
-        end
-    end
-    for uuid in pairs(sent) do
-        if not here[uuid] then
-            sent[uuid] = nil
-        end
-    end
 end)
 
 -- A player who leaves takes their settings with them; one who rejoins is on
 -- the plain sky until their first evaluation.
 wx.on_leave(function(uuid)
     sent[uuid] = nil
+    M.clouds_sent[uuid] = nil
 end)
 
 return M

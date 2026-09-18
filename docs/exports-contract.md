@@ -77,10 +77,11 @@ not need it: if it lands, `config.damp_ground = false` and the ground still
 wets. The fluid is resolved at freeze, so naming it is safe even though
 Weather registers it later.
 
-**Wanted for clouds (engine ask W2, not built yet):** a `dome` field, the
-compiled density of the base dome's height, so the cloud base can follow the
-Spindle's surface instead of sitting at one world y that is in the ground at
-the summit and kilometres up at the rim. Version 1 stays valid without it.
+**Wanted for clouds (optional):** `dome_y(x, z)`, a function answering the
+base dome's world y there. Weather sends each player a cloud floor 400 blocks
+over the ground under them, and reads the ground from this when it is
+exported, and from its mirrored dome formula when it is not. Version 1 stays
+valid without it; it matters only if the dome is ever reshaped.
 
 `biome_under` replaces Weather's ground-material guesses for ash (the Ember
 Ridge's four biomes) and dust (dunes, salt pan, arid mesa, badlands).

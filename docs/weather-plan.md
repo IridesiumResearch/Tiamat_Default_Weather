@@ -569,13 +569,8 @@ because two players in one domain can stand under different weather.
 
 ### 5.9 Not buildable yet
 
-- **A real cloud deck** [ask W2]. The target is the two reference images in
-  `docs/reference/`: voxel cumulus at two cube scales, flat bases, sunlit
-  gold tops and violet undersides, reaching the horizon, with a client
-  cloud-resolution slider. W2 was rewritten on 2026-09-18 to ask for exactly
-  that. **The particle puffs that stand in now cannot converge on it**
-  (sprites of at most 4 blocks, seen within 128), so they are a placeholder
-  to delete when W2 lands, not a thing to keep tuning.
+Nothing on the sheet is left unbuilt. The cloud deck (W2) landed on
+2026-09-18 and replaced the particle puffs (10.4).
 
 Everything else on the sheet was built by the engine on 2026-09-17: the sky
 darkens (5.11), the fog draws in with it, lightning flashes, the rain is the
@@ -859,3 +854,25 @@ sheet but clouds (W2). What changed here:
   `/weather clouds` reports the decision per cell, which is how it was found.
 - **W7 is built but unused here.** The block that would drink rainwater is
   the Spindle's dirt, so declaring it is the Spindle's (`exports-contract.md`).
+
+### 10.4 The cloud deck (2026-09-18)
+
+Engine 42368d5..55607e7 built W2 as a raymarch. The particle clouds are
+deleted, and with them the last particles this mod emitted.
+
+- **One deck, registered at load**, shaped after `docs/reference/`: 8-block
+  cubes breaking into 4-block ones on the surface, 160 blocks from floor to
+  the tallest top, towers at 0.35, a blue-violet shade, and a drift of half a
+  block a second along +x, which is the fronts' own drift, so the sky and the
+  rain under it travel together.
+- **Per player, every evaluation**, `set_clouds` with a cover and darkness
+  per kind. A precipitating kind eases from the cloudy sky to its own as it
+  arrives: clear 0.15, cloudy 0.55, rain 0.8, storm 1.0 and 0.9 dark.
+- **The floor follows the dome.** It is sent per player as 400 blocks over
+  the ground under them, in steps of 64 so walking does not nudge it. It is
+  about 1.3 km lower at the rim than halfway out. The ground is the Spindle's
+  `dome_y` export when there is one, and the mirrored dome otherwise.
+- **How fine the clouds are is the player's own graphics setting.** The
+  weather particles setting no longer mentions them.
+- `/weather clouds` reports what the player was sent: cover, darkness, and
+  the floor and how far over them it is.

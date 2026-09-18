@@ -64,16 +64,17 @@ return {
     STRIKE_ABOVE = 40,          -- blocks over the player the flash is centred
     STRIKE_SEEN = 512,          -- blocks the flash is seen from
     STRIKE_HEARD = 400,         -- blocks the thunder is heard from
-    CLOUD_LIVE_MAX = 3400,      -- live cloud particles per player (with the rain, well under the client's 8,192)
-    CLOUD_CELL = 40,            -- blocks on a side of a cloud cell: one puff each
-    CLOUD_REACH = 112,          -- cells whose centre is this close to a player puff (with CLOUD_ABOVE, inside the engine's 128)
-    CLOUD_PERIOD = 300,         -- ticks between a cell's puffs
-    CLOUD_LIFE = 30,            -- seconds a cloud particle lives: two puffs overlap
-    CLOUD_COUNT = 48,           -- particles a puff
-    CLOUD_ALPHA = 0.8,
-    CLOUD_ABOVE = 40,           -- blocks over the player the cloud base sits, in steps of 16: near enough to read as cloud
-    CLOUD_FREQUENCY = 1 / 140,  -- inverse size of a cloud, in blocks
-    CLOUD_SCAN_TICKS = 20,      -- ticks between looks for cloud cells that are due
+    -- The cloud deck (register_clouds), shaped after docs/reference/.
+    CLOUD_ABOVE = 400,          -- blocks over the ground the cloud floor sits
+    CLOUD_BASE_STEP = 64,       -- the floor moves in steps of this, so walking does not nudge the sky
+    CLOUD_THICKNESS = 160,      -- blocks from the floor to the tallest tower's top
+    CLOUD_CELL = 8,             -- blocks per cube
+    CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
+    CLOUD_FREQUENCY = 1 / 600,  -- the field's horizontal scale, cycles per block
+    CLOUD_OCTAVES = 3,
+    CLOUD_TOWERS = 0.35,        -- how much taller the highest heaps grow
+    CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
+    CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
     THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes
     HUD_ROW_SPINDLE = 78,       -- below the Spindle's biome name (y = 44, size 26)
     HUD_ROW_PLAIN = 44,

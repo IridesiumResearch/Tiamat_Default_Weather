@@ -27,9 +27,9 @@ and should be checked headless before they are filed.
 | W7, absorbing one fluid | **Done**, `absorbs = { fluid = ... }`. Weather does not use it yet: the block that would drink rainwater is the Spindle's dirt, so it is the Spindle's to declare (`docs/exports-contract.md`) |
 | W8, fog and tint composition | **Done for composition** (every mod is asked, last non-nil wins, a faulted mod no longer silences the rest). `refresh_chunk_presentation` was declined, so chunk fog is still serve-time only; W1 covers the weather half |
 | W9, exports between mods | **Done**, engine 482958a and 823aac3 |
-| W2, clouds | **Open, revised 2026-09-18** to a voxel cloud layer matching the designer's reference images, with a client cloud-resolution setting |
+| W2, clouds | **Done 2026-09-18** (engine 42368d5..55607e7): `register_clouds`, `set_clouds`, a raymarched cloud pass and a player cloud setting. Weather registers its deck and steers it per player |
 
-Still open: **W2**, and the part of W8 that was declined.
+Still open: the part of W8 that was declined, and the cover map deferred from W2.
 
 Priority when filed, highest first: **W1, W4, W9, W6, W5, W3, W2, W7, W8.** W1 and W4
 decide whether weather feels like weather at all. W9 removes the most fragile
@@ -76,6 +76,20 @@ the same domain can stand under different weather. Scaling stored sunlight at
 draw time, as `intensity` already does, keeps this free of relighting.
 
 ## W2. Clouds: a voxel cloud layer the client draws (revised 2026-09-18)
+
+*Done 2026-09-18*, as a raymarch rather than a mesh: the client marches a ray
+through a cloud field in one fullscreen pass, and the cubes are what it hits.
+The API below survived unchanged. All four review amendments are in the
+shader:
+
+- two height ranges per column, so undersides step and heaps mushroom
+- depth is written, so clouds sort against terrain both ways
+- resolution is tied to the player's cloud setting (Off, Coarse, Normal, Fine)
+- the sky gradient, sun glow and sun disc are drawn in the same pass
+
+Deferred by agreement: the coarse cover map, and cloud shadows on the ground.
+`base` is a number with a per-player override, not a density, and Weather
+sends each player a floor that follows the dome under them.
 
 **The target is two reference images** the designer supplied (kept with this
 sheet as `docs/reference/clouds-1.webp` and `clouds-2.webp`): a golden-hour

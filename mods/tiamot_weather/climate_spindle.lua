@@ -67,12 +67,14 @@ end
 local SPINDLE_HUMIDITY = EX and density_or_nil(EX.humidity)
 local SPINDLE_CLIMATE = EX and fn_or_nil(EX.climate)
 local SPINDLE_BIOME = EX and fn_or_nil(EX.biome_under)
+local SPINDLE_DOME = EX and fn_or_nil(EX.dome_y)
 
 -- What this adapter is reading, for /weather and the log.
 M.sources = {
     humidity = SPINDLE_HUMIDITY and "exported" or "mirrored",
     warmth = SPINDLE_CLIMATE and "exported" or "mirrored",
     biome = SPINDLE_BIOME and "exported" or "ground",
+    dome = SPINDLE_DOME and "exported" or "mirrored",
 }
 
 -- ------------------------------------------------------------ moisture
@@ -167,6 +169,16 @@ local function mirrored_climate(x, z)
         t = 1.0
     end
     return 4.0 * t * (1.0 - t)
+end
+
+-- The ground the clouds float over: the base dome's world y under (x, z).
+-- The Spindle's own `dome_y` export where it offers one, the mirror where not.
+function M.surface_y(x, z)
+    local y = SPINDLE_DOME and SPINDLE_DOME(x, z)
+    if type(y) == "number" and y == y then
+        return y
+    end
+    return dome_y(u_of(x, z))
 end
 
 function M.warmth(x, y, z)

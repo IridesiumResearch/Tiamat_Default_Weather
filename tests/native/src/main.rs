@@ -20,7 +20,7 @@ use std::{
 
 use tiamot_core::{
     BlockPos, MaterialId,
-    atmosphere::{self, FlashRequest, Precipitation, SkyModifier},
+    atmosphere::{self, Clouds, FlashRequest, Precipitation, SkyModifier},
     ent::{self, Entity, EntityId, Owner, Transform},
     fluid::{self, Fluid, FluidId},
     hud::{self, State, Value, Values},
@@ -169,6 +169,8 @@ struct Atmosphere {
     sky_calls: Mutex<Vec<([u8; 32], Option<SkyModifier>)>>,
     rain_calls: Mutex<Vec<([u8; 32], Option<Precipitation>)>>,
     flashes: Mutex<Vec<(u64, FlashRequest)>>,
+    clouds: Mutex<HashMap<[u8; 32], Option<Clouds>>>,
+    cloud_calls: Mutex<usize>,
 }
 
 impl atmosphere::Access for Atmosphere {
@@ -180,6 +182,11 @@ impl atmosphere::Access for Atmosphere {
     fn flash(&self, request: &FlashRequest) -> u32 {
         self.flashes.lock().unwrap().push((*self.now.lock().unwrap(), request.clone()));
         1
+    }
+    fn set_clouds(&self, player: PlayerUuid, clouds: Option<Clouds>) -> bool {
+        self.clouds.lock().unwrap().insert(*player.as_bytes(), clouds);
+        *self.cloud_calls.lock().unwrap() += 1;
+        true
     }
     fn set_precipitation(&self, player: PlayerUuid, precipitation: Option<Precipitation>) -> bool {
         self.rain.lock().unwrap().insert(*player.as_bytes(), precipitation.clone());
@@ -474,6 +481,9 @@ impl Rig {
     fn rain_of(&self, who: [u8; 32]) -> Option<Precipitation> {
         self.atmosphere.rain.lock().unwrap().get(&who).cloned().flatten()
     }
+    fn clouds_of(&self, who: [u8; 32]) -> Option<Clouds> {
+        self.atmosphere.clouds.lock().unwrap().get(&who).copied().flatten()
+    }
     fn sky_of(&self, who: [u8; 32]) -> Option<SkyModifier> {
         self.atmosphere.sky.lock().unwrap().get(&who).cloned().flatten()
     }
@@ -601,44 +611,23 @@ fn weather_check(storage: Arc<Storage>) -> String {
         "ok  storm: rain {:.0}/s at size {:.2} (opacity {opacity:.1}, 3x the first table is 12.0); sky {:.2} with fog {:.2}; {starts} loop calls; {} flashes, {claps} claps",
         rain.rate, rain.burst.size, sky.intensity, sky.fog_distance, flashes.len());
 
-    // Clouds are still bursts, and still this player's alone.
-    let bursts = r.particles.bursts.lock().unwrap().clone();
-    assert!(bursts.iter().all(|b| b.1.player == alice), "every burst is addressed to the one player");
-    let clouds: Vec<_> = bursts.iter().filter(|b| b.1.burst.size >= 4.0 && b.1.burst.pos[1] > feet + 20.0).collect();
-    assert_eq!(clouds.len(), bursts.len(), "clouds are all that is emitted now: the haze is gone");
-    let last_tick = bursts.last().unwrap().0;
-    let recent: std::collections::HashSet<(i64, i64)> = clouds
-        .iter()
-        .filter(|b| b.0 + 360 > last_tick)
-        .map(|b| (b.1.burst.pos[0] as i64, b.1.burst.pos[2] as i64))
-        .collect();
-    // Cells whose centre is within CLOUD_REACH (112) of the player, on a 40-block grid.
-    let (px, pz) = (x, 100.0);
-    let mut in_reach = 0;
-    for i in -3i64..=3 {
-        for k in -3i64..=3 {
-            let (cx, cz) = ((px as i64).div_euclid(40) + i, (pz as i64).div_euclid(40) + k);
-            let (dx, dz) = ((cx * 40 + 20) as f64 - px, (cz * 40 + 20) as f64 - pz);
-            if dx * dx + dz * dz <= 112.0 * 112.0 {
-                in_reach += 1;
-            }
-        }
-    }
+    // The cloud deck: registered once, shaped after the references, and
+    // steered per player. Nothing is emitted as particles any more.
+    let deck = r.vm.registered_clouds().expect("weather registers a cloud deck");
+    assert_eq!((deck.cell, deck.detail), (8.0, 2), "cubes of 8 breaking into 4s on the surface");
+    assert!(deck.thickness >= 128.0 && deck.towers > 0.0, "heaps with towers: {deck:?}");
+    assert!((deck.drift[0] - 0.5).abs() < 1e-6 && deck.drift[1] == 0.0, "drifts with the fronts: {:?}", deck.drift);
+    assert!(deck.shade[2] > deck.shade[0], "a blue-violet shade: {:?}", deck.shade);
+    assert!(r.particles.bursts.lock().unwrap().is_empty(), "no particles at all: the puffs are gone");
+    let storm_clouds = r.clouds_of(ALICE).expect("a storm sets the clouds");
+    assert!(storm_clouds.cover >= 0.99 && storm_clouds.darkness >= 0.85, "overcast and dark: {storm_clouds:?}");
+    let floor = storm_clouds.base.expect("the floor is sent per player");
+    let want = ((dome_y(x, 100.0) + 400.0) / 64.0).floor() * 64.0;
+    assert_eq!(f64::from(floor), want, "400 over the dome under the player, in steps of 64");
+    assert!(storm_clouds.ease_ticks > 0);
     let said = r.reply(ALICE, "/weather clouds");
-    if recent.len() != in_reach {
-        let mut want: Vec<(i64, i64)> = Vec::new();
-        for i in -3i64..=3 { for k in -3i64..=3 {
-            let (cx, cz) = ((px as i64).div_euclid(40) + i, (pz as i64).div_euclid(40) + k);
-            let (dx, dz) = ((cx * 40 + 20) as f64 - px, (cz * 40 + 20) as f64 - pz);
-            if dx * dx + dz * dz <= 112.0 * 112.0 { want.push((cx * 40 + 20, cz * 40 + 20)); }
-        } }
-        let missing: Vec<_> = want.iter().filter(|c| !recent.contains(c)).collect();
-        panic!("missing {missing:?} of {}; the sky says: {said}", want.len());
-    }
-    assert_eq!(recent.len(), in_reach, "a storm sky puffs every cell in reach");
-    let dark = clouds.last().unwrap().1.burst.colour;
-    assert!(dark[0] < 140, "storm clouds are dark: {dark:?}");
-    println!("ok  clouds: {} cells in the last 15 s, grey {}", recent.len(), dark[0]);
+    assert!(said.starts_with("cover 1.00, darkness 0.90"), "{said}");
+    println!("ok  clouds: deck {deck:?}; storm `{said}`");
 
     // A second player gets their own rain, sky and loop.
     r.join(BOB, x + 5.0, dome_y(x, 100.0) + 1.0, 100.0);
@@ -657,26 +646,26 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(!r.sounds.stops.lock().unwrap().is_empty(), "the loop stopped");
     println!("ok  cleared: HUD empty, rain and sky cleared, loop stopped");
 
-    // A clear sky still has a few white clouds, fewer than the storm's.
-    // The storm eases out over about 40 s first; give it that and a puff period.
+    // A clear sky keeps a few white clouds, and the floor has not moved.
+    let fair = r.clouds_of(ALICE).expect("a clear sky still sends clouds");
+    assert!(fair.cover > 0.0 && fair.cover < 0.3 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
+    assert_eq!(fair.base, Some(floor));
+    let calls = *r.atmosphere.cloud_calls.lock().unwrap();
     r.tick(400);
-    let now = r.now;
-    let bursts = r.particles.bursts.lock().unwrap().clone();
-    let fair: std::collections::HashSet<(i64, i64)> = bursts
-        .iter()
-        .filter(|b| b.0 + 360 > now && b.1.burst.size >= 4.0 && b.1.burst.pos[1] > feet + 20.0)
-        .map(|b| (b.1.burst.pos[0] as i64, b.1.burst.pos[2] as i64))
-        .collect();
-    assert!(fair.len() < recent.len(), "clear has fewer cloud cells ({}) than a storm ({})", fair.len(), recent.len());
-    let white = bursts.iter().rev().find(|b| b.1.burst.size >= 4.0 && b.1.burst.pos[1] > feet + 20.0);
-    if let Some(w) = white {
-        if w.0 + 360 > now {
-            assert!(w.1.burst.colour[0] > 200, "fair-weather clouds are white: {:?}", w.1.burst.colour);
-        }
-    }
-    assert!(!bursts.iter().any(|b| b.0 + 360 > now && b.1.burst.size >= 4.0 && b.1.burst.pos[1] < feet + 10.0),
-        "no haze under a clear sky");
-    println!("ok  clear sky: {} cloud cells, white, no haze", fair.len());
+    assert_eq!(*r.atmosphere.cloud_calls.lock().unwrap(), calls, "a steady sky sends nothing more");
+    println!("ok  clear sky: cover {:.2}, darkness {:.2}", fair.cover, fair.darkness);
+
+    // The floor follows the dome: at the rim it is kilometres lower than at the axis.
+    let rim = 0.9 * 59000.0;
+    r.stand(ALICE, rim, 0.0, "tiamot_default_world:dirt");
+    r.tick(41);
+    let low = r.clouds_of(ALICE).unwrap().base.unwrap();
+    let want = ((dome_y(rim, 0.0) + 400.0) / 64.0).floor() * 64.0;
+    assert_eq!(f64::from(low), want, "the floor over the rim");
+    assert!(floor - low > 1000.0, "the dome falls about 1.3 km from t=.5 to t=.9: {floor} to {low}");
+    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.tick(41);
+    println!("ok  the cloud floor follows the dome: y {floor} at t=.5, y {low} at the rim");
 
     // Forecast answers, and survives.
     let forecast = r.reply(ALICE, "/weather forecast");

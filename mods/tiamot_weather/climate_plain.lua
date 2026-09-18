@@ -51,6 +51,11 @@ function M.wind(_x, _z, tick)
     return COMPASS[(tick // WIND_TURN_TICKS) % #COMPASS + 1]
 end
 
+-- The ground the clouds float over: sea level, for a world nobody described.
+function M.surface_y()
+    return config.sea_level
+end
+
 function M.override()
     return nil
 end

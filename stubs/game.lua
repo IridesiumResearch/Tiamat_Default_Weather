@@ -1498,7 +1498,7 @@ function game.register_on_chat(callback) end
 ---@field padding integer? `container`: space inside its own edges.
 ---@field align string? `container`: "start", "center", "end" or "stretch".
 ---@field text string? `label`, `button`, `checkbox`.
----@field hash integer[]? `image`: 32 bytes of content hash.
+---@field hash string|integer[]? `image`: a content hash — the 64 hex characters `game.register_picture` / `game.content_hash` answer (or, the older spelling, 32 bytes in a table).
 ---@field initial string? `text_input`: what is in it to begin with.
 ---@field placeholder string? `text_input`: shown when empty.
 ---@field checked boolean? `checkbox`.
@@ -1520,7 +1520,7 @@ function game.register_on_chat(callback) end
 ---@class Tiamot.WidgetStyle
 ---@field background integer[]? `{r, g, b}` or `{r, g, b, a}`.
 ---@field border integer[]? Same shape. The width is the client's.
----@field nine_slice integer[]? 32 bytes of content hash, drawn as a nine-slice frame behind the widget. **The border is a THIRD of the image**, both ways: draw your frame so its corners are the outer third and they keep their size at any box size while the edges stretch. That is what a nine-slice is for, and it is why there is no border argument. Goes UNDER `background` and `border`, so a widget with both gets the flat colour inside the frame. Fetched by hash like a texture; a frame that has not arrived yet draws nothing and fills in when it lands.
+---@field nine_slice string|integer[]? A content hash — the hex `game.content_hash` answers, or 32 bytes in a table — drawn as a nine-slice frame behind the widget. **The border is a THIRD of the image**, both ways: draw your frame so its corners are the outer third and they keep their size at any box size while the edges stretch. That is what a nine-slice is for, and it is why there is no border argument. Goes UNDER `background` and `border`, so a widget with both gets the flat colour inside the frame. Fetched by hash like a texture; a frame that has not arrived yet draws nothing and fills in when it lands.
 ---@field text_colour integer[]? Same shape as `background`.
 ---@field font string? A registered font id — `game.register_font` qualified it with your mod, so `"my_mod:display"`. The client draws this widget's text in it. A font that failed to load, or a name nothing registered, falls back to the client's own face: a missing file is never a missing screen, so do not design a dialog that only makes sense in your typeface.
 ---@field text_size integer? In virtual pixels; the client keeps it legible.
@@ -1660,6 +1660,46 @@ function game.register_sound(spec) end
 ---the engine has no way to check a licence.
 ---@param spec { id: string, file: string }
 function game.register_font(spec) end
+
+---Registers a picture, so every client fetches it on join, and answers its
+---content hash as 64 hex characters. **Registration window only.**
+---
+---**Why a picture needs registering at all.** A client asks for content by
+---hash, and something has to tell it which. A dialog's tree is its own
+---manifest — every `image` and `nine_slice` in it is asked for when the tree
+---arrives — but a HUD script names a picture only when it draws one, by which
+---time the frame is being painted, and nothing had ever asked for the bytes:
+---every `hud.image` drew the "not arrived" box for ever. Register the picture
+---and it is in a table the client fetches from on join, like a sound or a
+---font. `id` defaults to the file path.
+---
+---The hash it answers is computed here, from the file in your directory, and
+---is the one the server will serve — so pass it to your HUD script
+---(`game.set_hud`) or into a dialog's `image` / `nine_slice` and nothing is
+---pasted by hand or goes stale. `file` is a path inside your mod's directory,
+---validated like a block texture's: relative, no `..`. A path that is not a
+---file, or not a kind clients are sent (`.png`, `.jpg`), is an error where you
+---wrote it. At most 512 pictures per server.
+---
+---```lua
+---local slot = game.register_picture{ id = "hotbar_slot", file = "textures/hotbar-slot.png" }
+---game.register_on_player_join(function(event)
+---    game.set_hud(event.player, { slot = slot })   -- the script draws hud.image{ hash = values.slot }
+---end)
+---```
+---@param spec { file: string, id?: string }
+---@return string hash 64 hex characters.
+function game.register_picture(spec) end
+
+---The content hash of a file in your mod's directory, as 64 hex characters —
+---for a dialog's `image` or `nine_slice` without pasting a hash by hand.
+---**Registration window or later; the file is read when you ask.** The same
+---rules as `game.register_picture`'s `file`, and the same hash. A picture a
+---HUD script draws must be REGISTERED, not merely hashed, or no client fetches
+---it; a dialog's pictures are fetched from the tree, so for those this is enough.
+---@param file string
+---@return string hash 64 hex characters.
+function game.content_hash(file) end
 
 ---Binds a sound to a named event. Registration window only.
 ---
@@ -1868,6 +1908,9 @@ function game.set_hud(player, values) end
 ---
 ---```lua
 ---game.register_hud_script("hud.lua")
+---
+----- Or, if your HUD draws along the bottom of the screen:
+---game.register_hud_script{ file = "hud.lua", reserve = 130 }
 ---```
 ---
 ---and in `hud.lua`:
@@ -1920,8 +1963,146 @@ function game.set_hud(player, values) end
 ---engine has no health, hunger or experience of its own (charter rule 1); it
 ---carries what you computed and reads none of it.
 ---
----@param file string Path to the Lua file inside your mod directory.
+---### `reserve` — keeping the engine's screens off your HUD
+---
+---A sheet — the inventory, the pause screen, a mod's dialog — is three quarters
+---of the window's height and centred, so it leaves an eighth of the window below
+---it. **A HUD with more than a row or two along the bottom edge does not fit in
+---that eighth**, and the sheet lands on top of it: hearts, food and warmth
+---covered by an open inventory.
+---
+---The engine cannot work this out for itself. A script draws whatever it likes
+---wherever it likes, and what the engine sees is a flat list of commands with no
+---height in it. So you say, in the table form:
+---
+---```lua
+---game.register_hud_script{ file = "hud.lua", reserve = 130 }
+---```
+---
+---`reserve` is **in the same virtual pixels `hud.lua` draws in** — the canvas is
+---1080 tall on every monitor — so it protects the same share of the screen
+---everywhere, exactly as your HUD scales. Measure it as the top of your tallest
+---bottom-anchored element plus that element's own height.
+---
+---The tallest reserve any loaded mod asked for is the one that applies, since
+---two HUDs drawing along the bottom edge stack. Sheets rise to clear it, and
+---only shrink when there is not enough window left to rise into. A reserve over
+---half the canvas is clamped: past that the sheet would be smaller than the
+---thing it was making way for, and a player still has to be able to read the
+---pause menu to leave.
+---
+---A reserve you leave out is none, which is what every mod written before this
+---existed asks for.
+---
+---@param file string|Tiamot.HudScriptSpec Path to the Lua file inside your mod directory, or a table.
 function game.register_hud_script(file) end
+
+---Fields accepted by the table form of `game.register_hud_script`.
+---@class Tiamot.HudScriptSpec
+---@field file string Required. Path to the Lua file inside your mod directory.
+---@field reserve number? Virtual pixels at the bottom of the canvas to keep the engine's sheets clear of. Default 0, clamped to 540.
+
+---Declares this world's cloud deck. Registration window only.
+---
+---**One deck per world**, and where several mods register one the lowest mod
+---id wins — the same rule `register_sky` follows, because two mods blending
+---their idea of a cloud is not a sky.
+---
+---The client draws it by marching a ray through a FIELD rather than by
+---building cubes, which is why a deck can reach the horizon and drift and
+---change shape without costing anything to rebuild. Every field below is
+---optional; the defaults are an ordinary fair-weather deck.
+---
+---```lua
+---game.register_clouds{
+---    base = 420,       -- world y of the deck's floor
+---    thickness = 96,   -- blocks from base to the tallest tower's top
+---    cell = 8,         -- blocks per cube
+---    detail = 2,       -- small cubes per cube edge on the surface; 1 is none
+---    frequency = 1 / 600, octaves = 3,
+---    towers = 0.25,    -- how much taller the highest heaps grow; 0 is flat banks
+---    drift = { x = 1.5, z = 0.4 },   -- blocks a second
+---    evolve = 1 / 2400,              -- how fast the shape changes, per second
+---    colour = { 1.0, 1.0, 1.0 },     -- lit cloud, before the sun's own colour
+---    shade = { 0.42, 0.44, 0.58 },   -- the unlit side, before the sky's
+---}
+---```
+---
+---**Presentation only.** It is outside every determinism hash, like the sky's
+---keyframes, so nothing you do here can change a world's terrain. The field is
+---seeded from the world seed all the same, so two players looking at the same
+---cloud agree about it.
+---
+---A number out of range is clamped rather than refused: a deck you got wrong
+---loses that number, not your sky. A field name you misspell IS an error,
+---because a typo that did nothing silently is a mod whose author cannot tell
+---why nothing happened.
+---
+---The player can turn clouds down or off in their own graphics settings, and
+---is never asked to tell the server.
+---
+---@param spec Tiamot.CloudSpec
+function game.register_clouds(spec) end
+
+---Fields accepted by `game.register_clouds`.
+---@class Tiamot.CloudSpec
+---@field base number? World y of the deck's floor. Default 256.
+---@field thickness number? Blocks from the base to the tallest top. Default 64, at most 1024.
+---@field cell number? Blocks per cube. Default 8, from 1 to 64.
+---@field detail integer? Small cubes per cube edge on the surface. Default 1 (none), at most 4.
+---@field frequency number? The field's horizontal scale, in cycles per block. Default 1/600.
+---@field octaves integer? Octaves of the field. Default 3, at most 6.
+---@field towers number? How much taller the highest heaps grow, 0..1. Default 0.
+---@field drift { x: number, z: number }? Blocks a second. Default none, at most 64.
+---@field evolve number? How fast the shape changes, per second. Default 0.
+---@field colour { r: number, g: number, b: number }? Lit cloud. Default white.
+---@field shade { r: number, g: number, b: number }? The unlit side. Default a blue-grey.
+
+---Sets how much cloud one player is under. Latest state, eased.
+---
+---**Per player, not per domain**, for the reason `set_sky_modifier` is: two
+---players in one domain can stand under different weather. One message when it
+---changes, so calling this every tick costs one message and nothing overflows.
+---
+---```lua
+---game.set_clouds(uuid, { cover = 0.55, darkness = 0.0, ease_ticks = 600 })
+---game.set_clouds(uuid, nil)   -- a clear sky, eased
+---```
+---
+---`cover` is 0 for clear and 1 for overcast. `darkness` is 0 for fair-weather
+---white and 1 for storm grey, and it also hangs a dark haze UNDER the deck —
+---which is what makes a storm read from outside it. Rain seen at a distance is
+---a curtain kilometres away, and `game.set_precipitation` spawns around the
+---player's own camera by construction, so the storm a player sees over the next
+---valley is this rather than particles.
+---
+---`base` overrides the registered floor for this player alone, for a world
+---whose ground height varies enough that one number will not do.
+---
+---Returns whether that player was there to tell.
+---
+---@param uuid string The player's UUID.
+---@param spec Tiamot.CloudsSpec|nil
+---@return boolean told
+function game.set_clouds(uuid, spec) end
+
+---Fields accepted by `game.set_clouds`.
+---@class Tiamot.CloudsSpec
+---@field cover number? 0 is clear, 1 is overcast. Default 0.
+---@field darkness number? 0 is fair-weather white, 1 is storm grey. Default 0.
+---@field base number? Overrides the registered floor for this player.
+---@field ease_ticks integer? How long the client takes to get there. Default 0, at most 2400.
+
+---There is no `game.register_theme`, and there cannot be.
+---
+---A mod's look for the engine's OWN screens — the pause screen, the settings
+---pages, the start screen — is declared in `mod.toml` under `[theme]`, not here.
+---The start screen runs before any server exists, so no Lua has run on it and
+---none can; a manifest is read without a VM, which is what lets the launcher
+---wear the look of the mods it is about to load. See `api/AGENTS.md`.
+---
+---`style` on a widget in your own dialogs is the other half and is unaffected:
+---a theme is the furniture around a screen, your styles are what is in it.
 
 ---Fields accepted by `game.play_sound`.
 ---@class Tiamot.PlaySpec

@@ -171,43 +171,18 @@ function M.report_drift(pos)
     return line
 end
 
--- What the sky over the player says it is: the cloud decision for every cell
--- within reach, without waiting for the puffs.
+-- The cloud deck over the player: what they were last sent.
 local function clouds(player)
+    if not wx.fx.has_clouds then
+        return "this engine draws no clouds (it predates register_clouds)"
+    end
     local pos = here(player)
-    if pos == nil or game.world_seed == nil then
-        return "you are not anywhere the weather can find"
+    local was = wx.fx.clouds_sent[player]
+    if pos == nil or was == nil then
+        return "no clouds sent to you yet; they follow the first weather evaluation"
     end
-    local cell, reach = config.CLOUD_CELL, config.CLOUD_REACH
-    local cx, cz = math.floor(pos.x) // cell, math.floor(pos.z) // cell
-    local r = reach // cell + 1
-    local cloudy, total, clear = 0, 0, {}
-    local osx, osz = controller.square_of(pos.x, pos.z)
-    local own = controller.squares[controller.key_of(osx, osz)]
-    for i = -r, r do
-        for k = -r, r do
-            local dx = ((cx + i) * cell + cell // 2) - pos.x
-            local dz = ((cz + k) * cell + cell // 2) - pos.z
-            if dx * dx + dz * dz <= reach * reach then
-                total = total + 1
-                local sx, sz = controller.square_of((cx + i) * cell, (cz + k) * cell)
-                -- The same fallback fx.lua uses: a cell whose own square
-                -- nobody is standing in takes the weather of the player it is
-                -- drawn for.
-                local square = controller.squares[controller.key_of(sx, sz)] or own
-                local grey, n, cover, kind = wx.fx.cloud_at(cx + i, cz + k, square, wx.now)
-                if grey then
-                    cloudy = cloudy + 1
-                else
-                    clear[#clear + 1] = string.format("%d,%d n=%.3f line=%.2f %s",
-                        (cx + i) * cell + cell // 2, (cz + k) * cell + cell // 2, n, cover, kind)
-                end
-            end
-        end
-    end
-    return string.format("%d of %d cells overhead are cloud, %d blocks up%s", cloudy, total,
-        (math.floor(pos.y) + config.CLOUD_ABOVE) // 16 * 16 - math.floor(pos.y),
-        #clear > 0 and ("; clear at " .. table.concat(clear, " ")) or "")
+    return string.format("cover %.2f, darkness %.2f, floor at y %d (%d blocks over you); cloud detail is your own graphics setting",
+        was.cover, was.darkness, was.base, was.base - math.floor(pos.y))
 end
 
 local function stats()
