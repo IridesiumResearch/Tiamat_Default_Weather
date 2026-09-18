@@ -569,8 +569,13 @@ because two players in one domain can stand under different weather.
 
 ### 5.9 Not buildable yet
 
-- **A real cloud deck** [ask W2]. Particle puffs stand in (5.1), seen within
-  128 blocks, so there is no cloud to the horizon.
+- **A real cloud deck** [ask W2]. The target is the two reference images in
+  `docs/reference/`: voxel cumulus at two cube scales, flat bases, sunlit
+  gold tops and violet undersides, reaching the horizon, with a client
+  cloud-resolution slider. W2 was rewritten on 2026-09-18 to ask for exactly
+  that. **The particle puffs that stand in now cannot converge on it**
+  (sprites of at most 4 blocks, seen within 128), so they are a placeholder
+  to delete when W2 lands, not a thing to keep tuning.
 
 Everything else on the sheet was built by the engine on 2026-09-17: the sky
 darkens (5.11), the fog draws in with it, lightning flashes, the rain is the

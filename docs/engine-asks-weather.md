@@ -27,7 +27,7 @@ and should be checked headless before they are filed.
 | W7, absorbing one fluid | **Done**, `absorbs = { fluid = ... }`. Weather does not use it yet: the block that would drink rainwater is the Spindle's dirt, so it is the Spindle's to declare (`docs/exports-contract.md`) |
 | W8, fog and tint composition | **Done for composition** (every mod is asked, last non-nil wins, a faulted mod no longer silences the rest). `refresh_chunk_presentation` was declined, so chunk fog is still serve-time only; W1 covers the weather half |
 | W9, exports between mods | **Done**, engine 482958a and 823aac3 |
-| W2, clouds | **Open.** Particle puffs still stand in |
+| W2, clouds | **Open, revised 2026-09-18** to a voxel cloud layer matching the designer's reference images, with a client cloud-resolution setting |
 
 Still open: **W2**, and the part of W8 that was declined.
 
@@ -75,48 +75,131 @@ keyframes. It is per player rather than per domain because two players in
 the same domain can stand under different weather. Scaling stored sunlight at
 draw time, as `intensity` already does, keeps this free of relighting.
 
-## W2. Clouds (2026-09-16)
+## W2. Clouds: a voxel cloud layer the client draws (revised 2026-09-18)
 
-*Stopgap built 2026-09-17:* puffs of size-4 particles on a 40-block grid,
-56 blocks over each player, cut from a noise by the weather's cover (plan
-5.1). They are capped by the particle budget and seen only within 128
-blocks, so there is no horizon of cloud. The ask stands.
+**The target is two reference images** the designer supplied (kept with this
+sheet as `docs/reference/clouds-1.webp` and `clouds-2.webp`): a golden-hour
+sky full of **voxel cumulus**. Nothing a mod can send gets there. Particle
+puffs were built as a stand-in (plan 5.1) and have been shown not to
+converge: they are sprites at most 4 blocks across, drawn within 128 blocks,
+and they read as specks, not cloud. This ask replaces them.
 
-There is no cloud deck, and a mod cannot draw one. A mod has no renderer. The
-only freely placed things a mod can show are particles, which cap at 8,192 a
-client and cost a network burst each. Solid blocks in the sky are what the
-first weather sketch wanted to avoid: edits, relights and remeshes for
-something nobody can stand on.
+### What the references show, as requirements
 
-Large, faint, 30-second particles were considered and rejected. A sustained
-stream of 4-block sprites still reads as smoke, not a deck, and it takes
-budget from the rain.
+1. **Clouds made of cubes, at two scales.** Each cloud is a mass of large
+   cubes whose edges break into smaller cubes: a blocky cauliflower, not a
+   smooth blob and not a flat slab. The large scale is the cloud's "cell";
+   the small scale is detail on its surface only.
+2. **Cumulus shape.** Flat bases at a common altitude, domed and heaped tops,
+   and some towers much taller than they are wide (the central cloud in both
+   images). Scattered small puffs of only a few cubes between the big masses.
+   Layered, flatter banks further off.
+3. **Lit by the sun, with self-shadow.** Faces toward the sun take the sun's
+   colour, gold at this hour. Faces away and the undersides are shaded blue to
+   violet, from the sky's own colour. The interior of a heap is darker than its
+   rim, because cloud above and sunward of a cube shadows it. At low sun a
+   bright rim runs along silhouettes near the sun.
+4. **Aerial perspective.** Distant clouds fade toward the horizon colour and
+   lose contrast. The near ones are crisp. The deck runs **to the horizon**,
+   well past chunk view distance.
+5. **Moving and changing.** They drift with a wind and evolve slowly, as the
+   rest of the weather does.
 
-The ask is **a cloud layer declared at registration, drawn and animated by
-the client**, with coverage steered at runtime:
+### The ask
+
+**One registration** (like the sky), **one per-player control** (like W1), and
+**one client setting**:
 
 ```lua
-game.register_clouds{                  -- registration window only, like the sky
-    height = 420,                      -- world y of the deck's base
-    thickness = 24,                    -- blocks
-    cell = 12,                         -- blocks per cloud cell: coarse on purpose
-    frequency = 1 / 900, octaves = 3,
-    drift = { x = 0.6, z = 0.0 },      -- blocks per second
-    colour = { 1, 1, 1 }, shade = { 0.35, 0.37, 0.42 },
+game.register_clouds{                  -- registration window only
+    base = 420,                        -- world y of the cloud base; or a density, see below
+    thickness = 96,                    -- blocks from base to the tallest tower's top
+    cell = 8,                          -- blocks per LARGE cube at full resolution
+    detail = 2,                        -- small cubes per large-cube edge on the surface (1 = none)
+    frequency = 1 / 600, octaves = 3,  -- the cloud field's horizontal scale
+    towers = 0.25,                     -- how much taller the tallest heaps grow (0 = flat banks)
+    drift = { x = 1.5, z = 0.4 },      -- blocks per second
+    evolve = 1 / 2400,                 -- how fast the field changes shape, per second
+    colour = { 1.0, 1.0, 1.0 },        -- lit cloud, before the sun's colour
+    shade = { 0.42, 0.44, 0.58 },      -- the unlit side, before the sky's colour
 }
-game.set_cloud_cover(player, { cover = 0.8, darkness = 0.6, ease_ticks = 600 })
+
+game.set_clouds(player, {              -- latest state, sent when it changes, eased
+    cover = 0.55,                      -- 0 = clear, 1 = overcast
+    darkness = 0.0,                    -- 0 = fair-weather white, 1 = storm grey
+    base = nil,                        -- optional override of the registered base
+    ease_ticks = 600,
+})
 ```
 
-The client evaluates its own noise over (x, z, clock) and meshes cells at
-`cell` blocks, so the cost is a view-distance grid of coarse boxes or a
-raymarched slab, which is the client's choice. It stays presentation only.
-**Clients do not need to agree bit-for-bit on cloud shape**, so the client
-noise can be the fast kind, not the deterministic kind. The server sends only
-cover and darkness.
+**The cloud field is the client's, and it does not need to be deterministic.**
+Two players may see slightly different cauliflower. The server owns only
+cover, darkness and the clock, so they see the same sky shape to within the
+eased cover. The client may use fast, non-deterministic noise and whatever
+drawing it likes.
 
-*Spindle-specific:* the world is a dome, so "a height" needs a meaning. A
-fixed world y is simplest. The deck curving with `shape.dome_at(u)` would be
-nicer and can come later as a `follows = "dome"` option.
+**The shape, as a field, so a renderer can meet the references.** At column
+(x, z), a 2-D noise `c` against `cover` decides whether there is cloud and
+how thick. The base is flat. The top is `base + thickness * h(c)`, with
+`towers` pushing the top of the highest values up. A 3-D detail noise at the
+small-cube scale bites the surface, never the inside, which gives the
+cauliflower edge. Cubes are quantised to `cell` and to `cell / detail`. That
+is a suggestion; the requirements above are the contract.
+
+**The client setting: cloud resolution.** A slider in the graphics settings,
+the player's own choice like view distance. It scales `cell` (for example
+0.5x, 1x, 2x, 4x of the registered value) and the cloud draw distance with
+it: fine and near, or coarse and to the horizon. "Off" draws no clouds at
+all. The server is never told.
+
+**By lighting mode**, so mode 1 pays for nothing it cannot show:
+
+| Mode | Clouds |
+|---|---|
+| 1 Simple | Cubes flat-shaded by face direction; one ambient |
+| 2 Classic | Plus sun colour on sunward faces, sky colour on the rest, aerial perspective |
+| 3 Beautiful | Plus self-shadow (cloud above and sunward darkens a cube), the low-sun rim, and cloud shadows on the ground if the cascades can take them |
+
+**Reaching the horizon.** Past chunk view distance the clouds are all that is
+drawn in the sky, so they need their own distance and their own LOD: big
+cubes far away, the detail cubes only near. The references show cloud down to
+the horizon line.
+
+**Two weather details worth building in now:**
+
+- **A storm on the horizon.** Per-player `cover` makes the whole sky one
+  weather. A later extension is a coarse cover map, for example a 16 x 16 grid
+  over 4 km sent on change, so a front seen from outside it is a wall of cloud
+  over the next valley. Say whether this is in scope.
+- **Rain under the cloud.** With `darkness` high, the base goes grey. That and
+  W1's sky modifier together should make a storm read from a distance.
+
+**Spindle-specific: the base on a dome.** The world is a dome falling 2.5 km
+from axis to rim, so a fixed world y puts cloud in the ground near the
+summit and kilometres up at the rim. Either `base` accepts a compiled density
+(the client already has the density evaluator in core) and the mod passes one
+that follows the dome, or `base` is relative: `above = 400`, measured from a
+surface the client already knows (its LOD summaries). The first is more
+general. The Spindle would export the dome density (a new field in its
+exports contract).
+
+### What Weather does once it lands
+
+- `register_clouds` at load, with the Spindle's dome as the base when it is
+  exported.
+- `set_clouds(player, { cover, darkness })` from each evaluation, beside W1's
+  sky modifier, from a cover per kind (clear 0.15, cloudy 0.55, rain 0.8,
+  storm and blizzard 1.0).
+- The particle clouds are deleted, and with them the only bursts the mod
+  still emits.
+
+### Acceptance
+
+Standing at golden hour under `cover = 0.55` in mode 3, a screenshot should
+be comparable with the references: blocky two-scale cumulus with flat bases,
+sunlit gold tops, violet undersides, towers among flatter banks, and cloud
+down to the horizon. Under `cover = 1, darkness = 1` the sky should be a low
+grey ceiling.
 
 ## W3. Lightning cannot be seen (2026-09-16)
 
