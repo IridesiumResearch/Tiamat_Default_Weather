@@ -69,8 +69,10 @@ return {
     CLOUD_BASE_STEP = 64,       -- the floor moves in steps of this, so walking does not nudge the sky
     CLOUD_THICKNESS = 160,      -- blocks from the floor to the tallest tower's top
     -- Coarse on purpose (2026-09-18): 8-block cubes cost a frame at the
-    -- horizon for detail nobody could see. 16 halves the steps a ray takes;
-    -- two octaves and fewer towers read as heaps rather than as noise.
+    -- horizon for detail nobody could see. 16 halves the steps a ray takes.
+    -- Since engine 0d8e857 the deck is heaps: FREQUENCY spaces them (a heap
+    -- every 0.42 / FREQUENCY blocks), THICKNESS sets how tall they grow, and
+    -- OCTAVES no longer shapes anything.
     CLOUD_CELL = 16,            -- blocks per cube
     CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
     CLOUD_FREQUENCY = 1 / 500,  -- the field's horizontal scale, cycles per block

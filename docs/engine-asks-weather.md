@@ -4,7 +4,9 @@
 > (`../Tiamot/docs/engine-asks/` from here), where the engine agent reads
 > every mod's asks. This file is the history of W1–W9. The two items
 > deferred from W2, the cover map and cloud shadows, are open there as W10
-> and W11.
+> and W11. W12 (the deck's cost at the horizon, and heaps with flat bases,
+> domed tops and a fake subsurface glow in place of a thresholded field) was
+> filed there on 2026-09-18 and built in engine 0d8e857 the same night.
 
 These asks come out of the weather plan (`weather-plan.md`) for the
 standalone `tiamot_weather` mod. **They are numbered W1–W9**, not in the

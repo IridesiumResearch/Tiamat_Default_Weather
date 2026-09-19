@@ -907,3 +907,20 @@ sky rather than as cloud, which wants flat bottoms and bulbous tops.
   heaps over flat bases with a fake subsurface glow, pictured beside the
   current deck in `docs/reference/cloud-prototype-2026-09-18.png`. It is
   filed as ask W12 in the engine repo's `docs/engine-asks/tiamot_weather.md`.
+
+### 10.7 Heaps (2026-09-19)
+
+Engine 0d8e857 built W12: a cloud is a clump of heaps, each a hemisphere
+over a flat base, with wrapped light and a fake subsurface glow on the thin
+parts; the march coarsens as a ray goes and no longer walks the air over a
+floating anvil. The deck's settings mean something new: `frequency` is the
+heap spacing (0.42 / frequency, about 210 blocks at 1/500), `thickness` how
+tall a heap grows (about a third to a half of it), `towers` a share of heaps
+grown taller, and `octaves` no longer shapes anything.
+
+The deck was left as it is. In the harness it draws separate round heaps
+from below and round crowns from above (`docs/reference/clouds-heaps-2026-09-19.png`,
+top row), for 0.02 to 0.43 ms over a bare sky, against 0.30 to 1.15 ms on
+the old shader. Taller decks (thickness 280 to 320, towers 0.35, the lower
+rows) grow more of a cumulus tower for 0.1 to 0.4 ms more; a choice of look
+for the designer, not a fix.
