@@ -966,3 +966,20 @@ up to 11".
   passes over you. Exports carry `mega` as a trailing value.
 - Its clouds are ask W13's `supercells`, sent once the engine has them.
 
+### 10.10 Cloud genera, asked for (2026-09-19)
+
+The designer, next: the heaps are "pretty undetailed noise-wise", and the
+sky wants stratocumulus, altocumulus and cumulonimbus approximations. W13
+was rewritten before the engine started it: per-player cover per genus on
+`set_clouds` (`cover` stays cumulus; `stratocumulus`, `altocumulus`,
+`cumulonimbus` join it), a rind of noise on every top, and a third interval
+for the mid-level layer. Prototype and five skies:
+`docs/reference/cloud-genera-2026-09-19.png` and
+`cloud-genera-prototype-2026-09-19.patch`. What the cube size allows, it
+showed: the stratocumulus cells and the rind only read once they are many
+cubes wide, and altocumulus is the genus the cube size limits most.
+
+Once it lands: clear a few cumulus and some altocumulus; cloudy all three
+low and mid genera; rain and snow a thick stratocumulus sheet; storm and
+blizzard stratocumulus under cumulonimbus; a mega storm cumulonimbus 1.
+
