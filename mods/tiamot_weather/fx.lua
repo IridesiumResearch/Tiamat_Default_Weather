@@ -72,6 +72,14 @@ M.SKY = {
     dust      = { intensity = 0.70, sky = { 0.85, 0.70, 0.45 }, sky_mix = 0.80, fog = 0.30, saturation = 0.80 },
 }
 
+-- A mega storm at full strength: every kind's own sky pushed this far
+-- further, so a mega blizzard is a whiter-out blizzard and a mega storm a
+-- blacker storm.
+M.MEGA_SKY = { intensity = 0.55, sky_mix = 1.0, fog = 0.5, saturation = 0.7 }
+-- And its rain: this many times the particles (up to the engine's cap), this
+-- much bigger, and this much harder in the wind.
+M.MEGA_PRECIP = { rate = 2.2, size = 1.35, wind = 2.0, fall = 1.4 }
+
 local MAX_RATE = 4000
 for kind, row in pairs(M.PRECIP) do
     local rate = row.live / row.life
@@ -109,6 +117,12 @@ local function share_of(uuid)
     return SHARE[game.setting(uuid, SETTING)] or 2
 end
 
+-- How far a square is into a mega storm, 0 to 1.
+local function mega_of(square)
+    return (square.mega or 0) / 1000
+end
+M.mega_of = mega_of
+
 local function precipitation_for(uuid, square, share, wind, was)
     local row = M.PRECIP[square.kind]
     local wanted = row ~= nil and square.intensity > 0 and share > 0
@@ -119,21 +133,26 @@ local function precipitation_for(uuid, square, share, wind, was)
         end
         return
     end
-    local rate = row.rate * square.intensity // 1000
+    local up = mega_of(square)
+    local more = 1 + (M.MEGA_PRECIP.rate - 1) * up
+    local rate = math.min(MAX_RATE, math.floor(row.rate * more) * square.intensity // 1000)
     if share == 1 then
         rate = rate // 2
     end
-    local key = square.kind .. ":" .. rate
+    local size = row.size * (1 + (M.MEGA_PRECIP.size - 1) * up)
+    local blow = row.wind * (1 + (M.MEGA_PRECIP.wind - 1) * up)
+    local fall = row.vy * (1 + (M.MEGA_PRECIP.fall - 1) * up)
+    local key = string.format("%s:%d:%d", square.kind, rate, math.floor(up * 20))
     if was.precip == key then
         return
     end
     was.precip = key
     game.set_precipitation(uuid, {
         rate = rate,
-        size = row.size,
+        size = size,
         colour = { r = row.colour[1], g = row.colour[2], b = row.colour[3], a = row.colour[4] },
         lifetime = row.life,
-        velocity = { x = wind.x * row.wind, y = row.vy, z = wind.z * row.wind },
+        velocity = { x = wind.x * blow, y = fall, z = wind.z * blow },
         spread = row.spread or 0,
         gravity = row.gravity,
         collide = row.collide ~= false,
@@ -161,17 +180,23 @@ local function sky_for(uuid, square, exposure, was)
     local function towards(one, other)
         return one + (other - one) * far
     end
-    local key = string.format("%s:%.3f", square.kind, far)
+    -- A mega storm pushes each number further by the same share: darker,
+    -- closer, greyer. Scaled by exposure too, so a cave is still a refuge.
+    local up = mega_of(square) * exposure / 15
+    local function further(value, by)
+        return value * (1 - (1 - by) * up)
+    end
+    local key = string.format("%s:%.3f:%.2f", square.kind, far, up)
     if was.sky == key then
         return
     end
     was.sky = key
     game.set_sky_modifier(uuid, {
-        intensity = towards(1.0, row.intensity),
+        intensity = further(towards(1.0, row.intensity), M.MEGA_SKY.intensity),
         sky = row.sky,
-        sky_mix = towards(0.0, row.sky_mix),
-        fog_distance = towards(1.0, row.fog),
-        saturation = towards(1.0, row.saturation),
+        sky_mix = math.min(1.0, towards(0.0, row.sky_mix) + (M.MEGA_SKY.sky_mix - row.sky_mix) * up),
+        fog_distance = further(towards(1.0, row.fog), M.MEGA_SKY.fog),
+        saturation = further(towards(1.0, row.saturation), M.MEGA_SKY.saturation),
         ease_ticks = config.EASE_TICKS,
     })
     M.stats.sky = M.stats.sky + 1
@@ -197,6 +222,9 @@ local function loop_for(uuid, square, exposure, was)
     end
     -- Quarter steps: a nudge every evaluation is cheap, but the table is not.
     local step = math.max(1, (heard + 125) // 250)
+    -- A mega storm is louder, by up to half again.
+    local loud = 1 + 0.5 * mega_of(square) * exposure / 15
+    step = step + math.floor((loud - 1) * 4 + 0.5)
     local key = sound .. ":" .. step
     if was.loop == key then
         return
@@ -223,7 +251,9 @@ local pending = {}
 local function strike(square, tick)
     local rng = game.rng_stream({ x = square.cx, y = tick % (1 << 30), z = square.cz,
         seed = game.world_seed }, "wx_thunder")
-    if rng:below(config.THUNDER_ODDS) ~= 0 then
+    local up = mega_of(square)
+    local odds = math.floor(config.THUNDER_ODDS + (config.MEGA_THUNDER_ODDS - config.THUNDER_ODDS) * up + 0.5)
+    if rng:below(math.max(1, odds)) ~= 0 then
         return
     end
     local rep = square.rep
@@ -242,7 +272,7 @@ local function strike(square, tick)
     -- Thunder, once the sound has had time to travel from there to here.
     local far = math.max(math.abs(dx), math.abs(dz))
     pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
-        gain = 0.5 + square.intensity / 2000 }
+        gain = 0.5 + square.intensity / 2000 + 0.5 * up }
 end
 
 local function thunder(tick)
@@ -332,6 +362,10 @@ local function clouds_for(uuid, where, square, was)
         cover = from.cover + (row.cover - from.cover) * far
         darkness = from.darkness + (row.darkness - from.darkness) * far
     end
+    -- A mega storm closes the sky and blackens it.
+    local up = mega_of(square)
+    cover = cover + (1 - cover) * up
+    darkness = darkness + (1 - darkness) * up
     local base = floor_at(where.x, where.z)
     local key = string.format("%.2f:%.2f:%d", cover, darkness, base)
     if was.clouds == key then
@@ -386,7 +420,9 @@ controller.on_evaluated(function()
             if HAS_CLOUDS then
                 clouds_for(uuid, where, square, was)
             end
-            if square.kind == "storm" and square.intensity > 0 then
+            -- Storms strike, and so does anything a mega storm has hold of:
+            -- thundersnow in a mega blizzard, lightning in the ash.
+            if square.intensity > 0 and (square.kind == "storm" or (square.mega or 0) > 0) then
                 strike(square, tick)
             end
         end

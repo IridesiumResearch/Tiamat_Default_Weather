@@ -104,8 +104,10 @@ if wx then
     wx.version                   -- 1
     wx.climate                   -- "spindle" | "plain"
     wx.kinds                     -- kind -> { family, precip, label }
-    wx.weather_at(x, y, z)       -- kind, intensity (permille): what a player there sees
-    wx.weather_for(player)       -- kind, intensity, label, at that player (UUID)
+    wx.weather_at(x, y, z)       -- kind, intensity, mega (permille): what a player there sees
+    wx.weather_for(player)       -- kind, intensity, label, mega, at that player (UUID)
+                                 -- mega: how far into a mega storm, 0..1000 (2026-09-19;
+                                 -- a trailing value, so older callers are unaffected)
     wx.falling_on(player)        -- "rain" | "snow" | "ash" | "dust", only under open sky; nil otherwise
     wx.warmth(x, y, z)           -- 0..1000
     wx.freezing(x, y, z)         -- boolean

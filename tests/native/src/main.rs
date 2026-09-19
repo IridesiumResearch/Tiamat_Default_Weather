@@ -512,6 +512,7 @@ fn main() {
     queue_check();
     puddle_check();
     exports_check();
+    mega_check();
     plain_check();
     hud_check();
     println!("all weather checks passed");
@@ -1061,6 +1062,79 @@ fn exports_check() {
     assert_eq!(probed, "storm 1000 Storm|rain|nil|false|nil|rain|spindle", "{probed}");
     assert!(!r.vm.faulted_mods().iter().any(|m| m == "tiamot_default_life"), "bad arguments cost the caller nothing");
     println!("ok  weather's exports: `{probed}` (bad arguments answer nil, writes are refused, nothing faulted)");
+}
+
+// Mega storms: everything a storm does, turned up to 11, about twice a year
+// at any one place.
+fn mega_check() {
+    let x = 0.5 * 59000.0;
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
+    r.tick(41);
+
+    // A plain storm first, to measure the mega storm against.
+    r.say(ALICE, "/weather set storm 10");
+    r.tick(40 * 25);
+    let storm_rain = r.rain_of(ALICE).expect("storm rain");
+    let storm_sky = r.sky_of(ALICE).expect("storm sky");
+    let storm_flashes = r.atmosphere.flashes.lock().unwrap().len();
+    r.tick(40 * 100);
+    let storm_strikes = r.atmosphere.flashes.lock().unwrap().len() - storm_flashes;
+
+    let set = r.reply(ALICE, "/weather set mega 10");
+    assert!(set.starts_with("mega over square"), "{set}");
+    r.tick(40 * 25);
+    assert_eq!(r.hud(ALICE), "Mega storm");
+    let reply = r.reply(ALICE, "/weather");
+    assert!(reply.contains("mega storm 1000"), "{reply}");
+    let rain = r.rain_of(ALICE).expect("mega rain");
+    let sky = r.sky_of(ALICE).expect("mega sky");
+    assert!(f64::from(rain.rate) >= 1.8 * f64::from(storm_rain.rate), "rain {} against a storm's {}", rain.rate, storm_rain.rate);
+    assert!(f64::from(rain.rate) <= 4000.0, "under the engine's cap: {}", rain.rate);
+    assert!(rain.burst.size > storm_rain.burst.size && rain.burst.velocity[1] < storm_rain.burst.velocity[1], "bigger, harder: {:?}", rain.burst);
+    assert!(sky.intensity < 0.8 * storm_sky.intensity, "darker: {} against {}", sky.intensity, storm_sky.intensity);
+    assert!(sky.fog_distance < 0.8 * storm_sky.fog_distance, "closer fog: {} against {}", sky.fog_distance, storm_sky.fog_distance);
+    let clouds = r.clouds_of(ALICE).expect("mega clouds");
+    assert!(clouds.cover >= 0.99 && clouds.darkness >= 0.99, "{clouds:?}");
+    let before = r.atmosphere.flashes.lock().unwrap().len();
+    r.tick(40 * 100);
+    let strikes = r.atmosphere.flashes.lock().unwrap().len() - before;
+    assert!(strikes >= 2 * storm_strikes.max(1), "{strikes} strikes against a storm's {storm_strikes} in the same time");
+    println!("ok  mega storm: rain {}/s against {}/s, sky {:.2} against {:.2}, fog {:.2} against {:.2}, {strikes} strikes against {storm_strikes}",
+        rain.rate, storm_rain.rate, sky.intensity, storm_sky.intensity, sky.fog_distance, storm_sky.fog_distance);
+
+    // In the cold it is a mega blizzard, with thundersnow.
+    let rim = 0.99 * 59000.0;
+    r.stand(ALICE, rim, 0.0, "tiamot_default_world:dirt");
+    r.tick(41);
+    r.say(ALICE, "/weather set mega 10");
+    r.tick(40 * 25);
+    assert_eq!(r.hud(ALICE), "Mega blizzard");
+    println!("ok  a mega storm in the cold is a mega blizzard");
+    r.say(ALICE, "/weather clear");
+
+    // The schedule: about twice a year at any one place, counted over ten
+    // years at forty places.
+    let (mut any, mut strong) = (0.0, 0.0);
+    let places = 40;
+    for i in 0..places {
+        let px = f64::from((i * 7919) % 50000 + 4000);
+        let pz = f64::from((i * 104_729) % 40000 - 20000);
+        r.stand(ALICE, px, pz, "tiamot_default_world:dirt");
+        let said = r.reply(ALICE, "/weather mega 10");
+        let head = said.split(" mega storms pass").next().unwrap_or_default();
+        any += head.rsplit(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<f64>().ok())
+            .unwrap_or_else(|| panic!("no count in `{said}`"));
+        strong += number_after(&said, "years, ");
+    }
+    let per_year = any / f64::from(places) / 10.0;
+    let strong_per_year = strong / f64::from(places) / 10.0;
+    assert!((1.4..=2.8).contains(&per_year), "{per_year:.2} mega storms a year at a place");
+    assert!((1.4..=2.6).contains(&strong_per_year), "{strong_per_year:.2} strong ones a year");
+    let said = r.reply(ALICE, "/weather mega");
+    assert!(said.contains("the next in"), "{said}");
+    println!("ok  mega storms: {per_year:.2} a year at a place, {strong_per_year:.2} strong; `{said}`");
 }
 
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.

@@ -10,8 +10,10 @@
 --   version = 1
 --   kinds                       kind -> { family, precip, label }
 --   climate                     "spindle" | "plain"
---   weather_at(x, y, z)         kind, intensity (permille): what a player there sees
---   weather_for(player)         kind, intensity, label: at that player, by UUID
+--   weather_at(x, y, z)         kind, intensity, mega (permille): what a player there sees
+--   weather_for(player)         kind, intensity, label, mega: at that player, by UUID
+--                               (`mega` is how far into a mega storm, 0..1000; added
+--                               2026-09-19, so a caller that ignores it is unaffected)
 --   falling_on(player)          "rain" | "snow" | "ash" | "dust" | nil: only under open sky
 --   warmth(x, y, z)             integer 0..1000
 --   freezing(x, y, z)           boolean
@@ -69,7 +71,7 @@ local function weather_at(x, y, z)
     local cx, cz = controller.square_of(x, z)
     local square = controller.squares[controller.key_of(cx, cz)]
     if square and square.kind then
-        return square.kind, square.intensity
+        return square.kind, square.intensity, square.mega or 0
     end
     return controller.weather(x, y, z, wx.now, climate.override(x, y, z))
 end
@@ -98,11 +100,11 @@ game.export{
         if pos == nil then
             return nil
         end
-        local kind, intensity = weather_at(pos.x, pos.y, pos.z)
+        local kind, intensity, mega = weather_at(pos.x, pos.y, pos.z)
         if kind == nil then
             return nil
         end
-        return kind, intensity, controller.label(kind, intensity)
+        return kind, intensity, controller.label(kind, intensity, mega), mega or 0
     end),
 
     falling_on = guarded("falling_on", function(player)

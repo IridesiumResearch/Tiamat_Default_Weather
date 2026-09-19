@@ -41,6 +41,23 @@ return {
     CLOUDY_AT = -0.05,
     RAIN_AT = 0.10,
     STORM_AT = 0.25,
+
+    -- ---------------------------------------------------------- mega storms
+    -- Everything a storm does, turned up to 11, about twice a year at any
+    -- one place. One per MEGA_REGION in each half of an in-game year, at a
+    -- hashed time and place, drifting with the fronts. Its disc covers about
+    -- its region's area, so a place is under about two a year, some of them
+    -- at full strength and some at the edge.
+    DAY_TICKS = 24000,          -- the engine's default day (game/core_sky)
+    DAYS_PER_YEAR = 365,
+    MEGA_PER_YEAR = 2,
+    MEGA_REGION = 4096,         -- blocks on a side of the lattice a mega storm is rolled on
+    MEGA_RADIUS = 2300,         -- its disc: pi * r^2 is about one region
+    MEGA_CORE = 0.8,            -- full strength inside this share of the radius
+    MEGA_TICKS = 12000,         -- half a day, building for the first and dying for the last
+    MEGA_RISE_TICKS = 2400,
+    MEGA_FALL_TICKS = 3000,
+    MEGA_LABEL_AT = 500,        -- the HUD says "Mega ..." from here (permille)
     -- A strong front alone makes dust over dry sand (the "dust" override).
     DUST_AT = 0.20,
 
@@ -81,6 +98,7 @@ return {
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
     THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes
+    MEGA_THUNDER_ODDS = 3,      -- and in a mega storm at full strength
     HUD_ROW_SPINDLE = 78,       -- below the Spindle's biome name (y = 44, size 26)
     HUD_ROW_PLAIN = 44,
 
@@ -101,5 +119,6 @@ return {
     PUDDLE_ONE_IN = 8,          -- one sampled column in this many gets rainwater: puddles, not a film
     PUDDLE_CELLS = 3,           -- cells of rainwater a sampled column gets in RAIN
     STORM_PUDDLE_CELLS = 6,     -- and in a STORM
+    MEGA_PUDDLE_CELLS = 12,     -- and in a mega storm
     RAIN_EVAPORATES = 300,      -- one cell in this many fluid ticks (10 Hz): 3 cells in the open last about 90 s
 }

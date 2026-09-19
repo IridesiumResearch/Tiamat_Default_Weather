@@ -6,6 +6,7 @@
 --   /weather set <kind> [minutes]     force a kind on your square (default 10 minutes)
 --   /weather clear                    remove the force
 --   /weather forecast                 the next ten minutes at your square
+--   /weather mega                     the next mega storms to pass over you
 --   /weather drift                    compare the mirrored humidity with the ground
 --   /weather stats                    the sampler's and queue's counts, to the log
 --
@@ -43,10 +44,13 @@ local function describe(player)
     local square = controller.squares[controller.key_of(cx, cz)]
     local tick = wx.now
     local ground = climate.override(pos.x, pos.y, pos.z)
-    local kind, intensity = controller.weather(pos.x, pos.y, pos.z, tick, ground)
+    local kind, intensity, mega = controller.weather(pos.x, pos.y, pos.z, tick, ground)
     local applied = square and square.kind
         and string.format("%s at %d (easing to %s at %d)", square.kind, square.intensity, kind, intensity)
         or string.format("%s at %d (not yet evaluated)", kind, intensity)
+    if (mega or 0) > 0 or (square and (square.mega or 0) > 0) then
+        applied = applied .. string.format(", mega storm %d (easing to %d)", square and square.mega or 0, mega or 0)
+    end
     local forced = controller.override_at(cx, cz, tick)
     return string.format(
         "%s; warmth %d%s, moisture %.4f, front %.6f; ground %s; square %d:%d%s; climate %s%s; damp ground %s, puddles %s",
@@ -69,8 +73,8 @@ local function set(player, args)
         return "weather commands are switched off on this server"
     end
     local kind = args[2] and string.lower(args[2])
-    if kind == nil or controller.KINDS[kind] == nil then
-        local names = {}
+    if kind == nil or (controller.KINDS[kind] == nil and kind ~= "mega") then
+        local names = { "mega" }
         for name in pairs(controller.KINDS) do
             names[#names + 1] = name
         end
@@ -87,7 +91,7 @@ local function set(player, args)
     end
     local cx, cz = controller.square_of(pos.x, pos.z)
     local ticks = math.floor(minutes * 60 * 20)
-    controller.set_override(cx, cz, kind, SET_INTENSITY[kind], wx.now + ticks)
+    controller.set_override(cx, cz, kind, SET_INTENSITY[kind] or 1000, wx.now + ticks)
     return string.format("%s over square %d:%d for %s minutes; it eases in over about forty seconds",
         kind, cx, cz, tostring(minutes))
 end
@@ -118,13 +122,51 @@ local function forecast(player)
     local lines, last = {}, nil
     for minute = 0, FORECAST_MINUTES do
         local tick = wx.now + minute * FORECAST_STEP_TICKS
-        local kind, intensity = controller.weather(x, pos.y, z, tick, ground)
-        local label = controller.label(kind, intensity)
+        local kind, intensity, mega = controller.weather(x, pos.y, z, tick, ground)
+        local label = controller.label(kind, intensity, mega)
         if label == "" then label = "Clear" end
         if label ~= last then
             lines[#lines + 1] = (minute == 0 and "now" or ("in " .. minute .. " min")) .. ": " .. label
             last = label
         end
+    end
+    return table.concat(lines, "; ")
+end
+
+-- When the next mega storms pass over you, in in-game days, and how strong
+-- they get where you stand; `/weather mega <years>` counts them too.
+local function mega(player, args)
+    local pos = here(player)
+    if pos == nil or game.world_seed == nil then
+        return "you are not anywhere the weather can find"
+    end
+    local years = tonumber(args[2] or "2")
+    if years == nil or years <= 0 or years > 100 then
+        return "usage: /weather mega [years], up to 100"
+    end
+    local day = config.DAY_TICKS
+    local slots = math.ceil(years * config.MEGA_PER_YEAR)
+    local ahead = controller.mega_ahead(pos.x, pos.z, wx.now, slots)
+    local horizon = wx.now + math.floor(years * controller.YEAR_TICKS)
+    local count, full, next_one = 0, 0, nil
+    for _, e in ipairs(ahead) do
+        if e.start > wx.now and e.start <= horizon then
+            count = count + 1
+            if e.peak >= config.MEGA_LABEL_AT then
+                full = full + 1
+            end
+            next_one = next_one or e
+        end
+    end
+    local lines = {}
+    local now = controller.mega(pos.x, pos.z, wx.now)
+    if now > 0 then
+        lines[#lines + 1] = string.format("a mega storm is over you now, at %d", now)
+    end
+    lines[#lines + 1] = string.format("%d mega storms pass over you in the next %s years, %d of them strong here",
+        count, tostring(years), full)
+    if next_one then
+        lines[#lines + 1] = string.format("the next in %.1f days, up to %d", (next_one.start - wx.now) / day, next_one.peak)
     end
     return table.concat(lines, "; ")
 end
@@ -210,6 +252,8 @@ wx.on_command("weather", function(player, args)
         return clear(player)
     elseif sub == "forecast" then
         return forecast(player)
+    elseif sub == "mega" then
+        return mega(player, args)
     elseif sub == "drift" then
         return drift(player)
     elseif sub == "clouds" then
@@ -217,7 +261,7 @@ wx.on_command("weather", function(player, args)
     elseif sub == "stats" then
         return stats()
     end
-    return "usage: /weather [set <kind> [minutes] | clear | forecast | drift | clouds | stats]"
+    return "usage: /weather [set <kind> [minutes] | clear | forecast | mega | drift | clouds | stats]"
 end)
 
 -- The drift check once per session, when the first player has joined and

@@ -178,7 +178,8 @@ local function column(x, z, feet_y, square, tick, rng)
     end
 
     if raining and config.puddles and holds_puddle(surface.material) and rng:below(config.PUDDLE_ONE_IN) == 0 then
-        local cells = square.kind == "storm" and config.STORM_PUDDLE_CELLS or config.PUDDLE_CELLS
+        local cells = (square.mega or 0) >= config.MEGA_LABEL_AT and config.MEGA_PUDDLE_CELLS
+            or square.kind == "storm" and config.STORM_PUDDLE_CELLS or config.PUDDLE_CELLS
         queue.push_fluid(open, blocks.RAINWATER, cells)
         M.stats.puddles = M.stats.puddles + 1
     end

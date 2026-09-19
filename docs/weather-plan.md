@@ -936,3 +936,33 @@ and renders (`docs/reference/cloud-kinds-2026-09-19.png`,
 snow, ash and dust send fair; rain `storm` 0.5; storm, blizzard and ash
 storm `storm` 1; and a new, rarer mega storm sends `supercells` as it
 builds. How rare, and what else it brings on the ground, is still to decide.
+
+### 10.9 Mega storms (2026-09-19)
+
+The designer: twice in 365 in-game days, and "all the regular stuff turned
+up to 11".
+
+- **The schedule is the world's.** One mega storm per 4 km region
+  (`MEGA_REGION`) in each half of an in-game year (365 days of the engine's
+  default 24,000 ticks), at a time and centre drawn from a stream seeded by
+  the region and the half year. Its disc (`MEGA_RADIUS` 2,300, about one
+  region's area) is full strength inside 80 % of its radius, and it drifts
+  with the fronts. Half a day long: 2,400 ticks building, 3,000 dying. So,
+  like the rest of the weather, it is a function of place and tick: a
+  restart resumes it, and a forecast years out is the same function.
+  Measured over forty places and ten years: 2.2 a year pass over a place,
+  1.8 of them strong enough to be called one (`MEGA_LABEL_AT` 500).
+- **Turned up to 11.** Inside one the kind is the strongest for the ground
+  (storm, blizzard in the cold, ash storm on ash, dust on sand) at full
+  intensity. A square carries `mega` (permille, eased like intensity), and
+  everything scales on it: rain 2.2 times as dense (to the engine's cap),
+  1.35 times bigger and harder in the wind; the sky darker, the fog closer
+  and the colour greyer than the storm's own; the loop half again as loud;
+  lightning from one evaluation in twelve to one in three, and in any kind,
+  so a mega blizzard has thundersnow; the clouds fully over and black; and
+  twice a storm's puddles. The HUD says "Mega storm", "Mega blizzard".
+  Snow keeps its one-block cap.
+- `/weather set mega` forces one; `/weather mega [years]` says when the next
+  passes over you. Exports carry `mega` as a trailing value.
+- Its clouds are ask W13's `supercells`, sent once the engine has them.
+

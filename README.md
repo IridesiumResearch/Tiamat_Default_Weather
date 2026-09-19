@@ -71,9 +71,10 @@ puts a roof over everything, loads without the Spindle, and draws the HUD.
 | | |
 |---|---|
 | `/weather` | What it is doing where you stand, and why: kind, intensity, warmth, moisture, the front, the square |
-| `/weather set <kind> [minutes]` | Force a kind on your 256-block square: `clear`, `cloudy`, `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm`, `dust` |
+| `/weather set <kind> [minutes]` | Force a kind on your 256-block square: `clear`, `cloudy`, `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm`, `dust`, or `mega` for a mega storm |
 | `/weather clear` | Remove the force |
 | `/weather forecast` | The next ten minutes at your square |
+| `/weather mega [years]` | When the next mega storm passes over you, and how many in the next few years |
 | `/weather drift` | Check the mirrored humidity against the Spindle's ground |
 | `/weather stats` | The sampler's, queue's and particles' counts, to the server log |
 
