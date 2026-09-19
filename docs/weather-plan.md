@@ -924,3 +924,15 @@ top row), for 0.02 to 0.43 ms over a bare sky, against 0.30 to 1.15 ms on
 the old shader. Taller decks (thickness 280 to 320, towers 0.35, the lower
 rows) grow more of a cumulus tower for 0.1 to 0.4 ms more; a choice of look
 for the designer, not a fix.
+
+### 10.8 Three kinds of cloud, asked for (2026-09-19)
+
+The designer wants the heaps more detailed and picturesque, in three kinds:
+everyday fair-weather cloud, storm cloud, and the mega storm. The deck's
+shape is registration-only, so this is engine ask W13: two eased per-player
+numbers on `set_clouds`, `storm` and `supercells`, with a prototype shader
+and renders (`docs/reference/cloud-kinds-2026-09-19.png`,
+`cloud-kinds-prototype-2026-09-19.patch`). Once it lands, clear, cloudy,
+snow, ash and dust send fair; rain `storm` 0.5; storm, blizzard and ash
+storm `storm` 1; and a new, rarer mega storm sends `supercells` as it
+builds. How rare, and what else it brings on the ground, is still to decide.
