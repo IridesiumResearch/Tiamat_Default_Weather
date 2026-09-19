@@ -84,6 +84,19 @@ end end
 If you need a trig value, the engine has `game.heading(dx, dz)`. Do not reach
 for `math.atan`, `math.sin` or `^`.
 
+The same rule has a quieter form: **if the step already measured it, read it
+rather than re-derive it.** `game.entity` reports what the physics actually
+acted on this tick, and a mod's own reconstruction is not the same number:
+
+| Read this | Instead of | Because |
+|---|---|---|
+| `e.submerged` | probing the blocks round a body | a body's box is not a block, and the engine's answer is the one that moved it |
+| `e.fell` | watching `velocity.y` for a landing | vertical speed is clamped at terminal velocity, so a fall of forty blocks and one of four hundred land at the same number — and water slows a body before it touches down |
+| `e.facing` | `math.sin(e.yaw)` | libm, so two servers throw the same item to different places |
+
+`fell` is blocks, and it is set on the one tick a body lands and zero on every
+other, so a fall rule is one `if` in a tick hook with nothing to remember.
+
 ### 2. Quantities are integer units, 27 to a block
 
 A block is 3x3x3 sub-nodes. Every inventory quantity, every drop, every cost is
@@ -120,6 +133,14 @@ cell, what it is made of and what is in the hand, `game.get_block` works inside
 it, and returning `""` says you handled it. Return `nil` for blocks that are not
 yours, so the next mod — and in the end the engine's own "nothing selected"
 warning — gets its turn.
+
+**Between events, `game.looking_at(uuid)` says what a player's crosshair is
+on** — the same `{ x, y, z, domain, material }` a use event carries, plus the
+face. Use it when you need the answer *now* rather than when somebody pressed
+something: a label under the crosshair, a key bound to "interact with what I am
+pointing at". It casts the engine's own ray, bounded by the player's reach;
+walking one in Lua from `game.entity(body).facing` is per-sample work at the
+wrong altitude, and the engine already has the traversal.
 
 **A HUD script's pictures must be registered: `game.register_picture{ file }`.**
 A dialog's tree is its own manifest and its pictures are fetched when it
@@ -494,7 +515,8 @@ frame for sheets, one for buttons, and five colours.
 
 ```toml
 [theme]
-font = "fonts/Cinzel.ttf"
+font = "fonts/Cinzel.ttf"            # headings and buttons
+text_font = "fonts/Spectral.ttf"     # chat, text fields, prose
 sheet = "art/frame_iron.png"
 button = "art/button_brass.png"
 
@@ -509,8 +531,15 @@ accent = "#b08d57"
 Every field is optional and anything you leave out stays the client's own, so a
 theme that is only a palette is a theme — and a theme cannot make a screen
 unreadable, because every part of it is an override with a default underneath.
-A frame's border is a THIRD of the image, the same rule `style.nine_slice`
-uses. **One theme applies at a time: the last mod in load order that declares
+**Two faces, because a theme's own is usually a display one.** `font` goes on
+headings and buttons; `text_font` goes on everything read as sentences. Name
+only `font` and it covers both, which is what a one-face theme means — but a
+display capital is hard reading for every line anyone says in chat.
+
+**A frame is drawn 18 points deep whatever your art's resolution is**, and your
+contents are kept clear of it, so you do not need to pad your own tree to
+escape the trim. Draw the border as a third of your image, the rule
+`style.nine_slice` uses; the engine scales it to suit. **One theme applies at a time: the last mod in load order that declares
 one**, so a mod that depends on another paints over it.
 
 In a world the theme is pushed on join and its files ride the font and picture
@@ -1073,14 +1102,22 @@ them. A billboard alpha-tests on its own.
 block a sample is in, so a two-cell run written by `fill_density` lands half in
 one block and half in the next, and the sampled fill misses most of it in
 stripes that follow the contours. `fill_cover` stands a run on every surface the
-buffer already holds, inside one block:
+buffer already holds:
 
 ```lua
 game.register_on_generate(function(buf, pos)
     buf:fill_density(surface, dirt, { detail = "smooth" })   -- the ground first
     buf:fill_cover(grass, { cells = 2, take = tufts })       -- then what grows on it
+    buf:fill_cover(allium, { cells = 6, take = rare })       -- and a two-block flower
 end)
 ```
+
+**Up to three cells a run stays in the block it started in; over three it
+carries into the block above, up to nine.** The short case is the rule that
+keeps a tuft from being two stacked blocks that highlight and dig apart, and it
+is what every grass wants. The tall case is the two-block flower — an allium, a
+peony — and there the spill is the point. A tall run is cut at the chunk's
+ceiling, one block row in sixteen.
 
 Call it AFTER the fills that make the ground — it reads what they wrote. `take`
 is a density sampled at the run's base cell: positive means a run goes there, so
@@ -1182,6 +1219,17 @@ Everything here is true as of 2026-09-18 and is the kind of thing that is
 cheaper to read than to discover. None of it is a rule the engine wants; each is
 work that has not been done, and each will move.
 
+**A density program may hold 4,096 operations and 16 live buffers.** It was
+1,024 and 8 until 2026-09-19, and the world mod's shore programs sat at 985 and
+939 with three biomes in them — which is why its reefs lost their tidal gutters
+and its cliffs their blowholes. Nothing remembers a subtree it has already
+emitted, so a helper called twice is compiled twice: `a * (1 - w) + b * w` emits
+`w` twice, and a ring re-emits its radius at every call. Budget for that.
+What a program costs is its NOISE reads, not its length: one is about 0.34 ms a
+chunk and a thousand arithmetic operations about 0.5 ms, so a noise node is
+worth roughly seven hundred arithmetic ones. Spend the room on arithmetic
+freely and on noise carefully.
+
 **An open sheet covers the bottom of the screen, and your HUD has to say so.**
 The inventory, the pause screen and a mod's dialog are all one sheet: three
 quarters of the window's height, four by three, centred. That leaves an eighth
@@ -1207,6 +1255,28 @@ so until 2026-09-17: the solver took one set from whichever fluid registered
 first, alphabetically, so a reference mod you never thought about could be
 setting your sea's speed. Nothing to design around now; it is here so that a
 world made before then is understood if its water seems to have changed pace.
+
+**The day is yours to wind.** `game.time_of_day()` reads it and
+`game.set_time_of_day(t)` sets it — 0 midnight, 0.25 dawn, 0.5 noon, wrapped
+rather than clamped, everybody told at once. That is the bed that ends the
+night. One clock for the world; a sky that differs for one player is
+`game.set_sky_modifier`.
+
+**Your sea is drawn at the horizon.** A chunk past the detail radius arrives as
+a summary — one material a cell — and until 2026-09-19 a summary held no fluid,
+so a generated ocean read as its floor with a hole over it until you walked into
+the detail radius. A block holding fluid and no terrain now reads as the block
+that fluid is drawn as, which is the same one you named in `register_fluid`.
+Nothing to do: place the sea and it is there to the horizon.
+
+**A fluid can take the light out of what passes through it**, with
+`light_falloff` on `register_fluid` — levels lost per block, default 0. Zero is
+"like air", which is what every fluid was: a block of fluid is air in the block
+store, so sunlight fell to a sea floor a hundred blocks down at full strength.
+One is a level a block, which also ends daylight's free fall straight down, so a
+shaft of water is dark fifteen blocks under the surface and a shaft of air is
+not. A passable cell does not displace fluid either, so a plant under water is
+saturated rather than standing in a bubble of air.
 
 **Two fluids never mix, and the first one there keeps the space.** A block holds
 one fluid and a volume of it, so a move into a block holding a different fluid

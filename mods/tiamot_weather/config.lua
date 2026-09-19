@@ -20,9 +20,10 @@ return {
     -- `add_harmless_fluid` and takes rainwater (plan 7.3): until then its
     -- leaves rule would strip a canopy rainwater pressed on.
     puddles = "auto",
-    -- Whether /weather set and /weather clear work. The engine has no
-    -- operators yet, so this is a server-wide yes or no.
-    commands = true,
+    -- Who may run /weather set and /weather clear: "operators" (the server's
+    -- own list, `game.is_operator`), true for everyone, or false for nobody.
+    -- On an engine older than operators, "operators" lets everyone, as before.
+    commands = "operators",
     -- The plain adapter's idea of where the ground is, for warmth.
     sea_level = 0,
 

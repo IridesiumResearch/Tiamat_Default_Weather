@@ -10,8 +10,8 @@
 --   /weather drift                    compare the mirrored humidity with the ground
 --   /weather stats                    the sampler's and queue's counts, to the log
 --
--- `set` and `clear` are gated by `config.commands` until the engine has
--- operators.
+-- `set` and `clear` are for operators (`config.commands`), by the server's
+-- own list.
 
 local config = wx.config
 local climate = wx.climate
@@ -68,9 +68,23 @@ local function describe(player)
         config.damp_ground and "on" or "off", config.puddles and "on" or "off")
 end
 
-local function set(player, args)
-    if not config.commands then
+-- Whether this player may force the weather. Nil when they may, and what to
+-- tell them when they may not.
+local function refused(player)
+    if config.commands == false then
         return "weather commands are switched off on this server"
+    end
+    if config.commands == "operators" and type(game.is_operator) == "function"
+        and not game.is_operator(player) then
+        return "only an operator can change the weather"
+    end
+    return nil
+end
+
+local function set(player, args)
+    local no = refused(player)
+    if no then
+        return no
     end
     local kind = args[2] and string.lower(args[2])
     if kind == nil or (controller.KINDS[kind] == nil and kind ~= "mega") then
@@ -97,8 +111,9 @@ local function set(player, args)
 end
 
 local function clear(player)
-    if not config.commands then
-        return "weather commands are switched off on this server"
+    local no = refused(player)
+    if no then
+        return no
     end
     local pos = here(player)
     if pos == nil then

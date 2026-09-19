@@ -78,8 +78,9 @@ puts a roof over everything, loads without the Spindle, and draws the HUD.
 | `/weather drift` | Check the mirrored humidity against the Spindle's ground |
 | `/weather stats` | The sampler's, queue's and particles' counts, to the server log |
 
-`set` and `clear` are open to everyone while `config.commands` is true; the
-engine has no operators yet.
+`set` and `clear` are for operators, by the server's own list
+(`game.is_operator`); `config.commands` can open them to everyone (`true`)
+or close them (`false`).
 
 ## What is not here yet
 

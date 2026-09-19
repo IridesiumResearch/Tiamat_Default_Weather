@@ -199,6 +199,11 @@ impl atmosphere::Access for Atmosphere {
 struct Huds(Mutex<HashMap<[u8; 32], Values>>);
 
 impl hud::Access for Huds {
+    // Alice is an operator and Bob is not.
+    fn is_operator(&self, player: [u8; 32]) -> bool {
+        player == ALICE
+    }
+
     fn set_hud(&self, mod_id: &str, player: [u8; 32], values: Values) -> bool {
         assert_eq!(mod_id, MOD);
         self.0.lock().unwrap().insert(player, values);
@@ -633,6 +638,10 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // A second player gets their own rain, sky and loop.
     r.join(BOB, x + 5.0, dome_y(x, 100.0) + 1.0, 100.0);
     r.tick(41);
+    // Only an operator may force the weather, by the server's own list.
+    assert_eq!(r.reply(BOB, "/weather set clear 5"), "only an operator can change the weather");
+    assert_eq!(r.reply(BOB, "/weather clear"), "only an operator can change the weather");
+    assert!(r.reply(BOB, "/weather").starts_with("storm"), "anybody may ask what it is doing");
     assert!(r.rain_of(BOB).is_some() && r.sky_of(BOB).is_some(), "the newcomer is under the storm too");
     assert!(r.sounds.loops.lock().unwrap().iter().any(|l| l.0.ends_with("weather")), "and hears it");
     let theirs = r.clouds_of(BOB).expect("and their clouds, from the first evaluation");
