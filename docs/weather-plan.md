@@ -576,7 +576,7 @@ Everything else on the sheet was built by the engine on 2026-09-17: the sky
 darkens (5.11), the fog draws in with it, lightning flashes, the rain is the
 client's own emitter, the loops are per player and the column scan is one
 call. A storm is now a dark sky, close fog, heavy rain, thunder after the
-flash, and puffs of cloud overhead.
+flash, and the deck overhead closing in and going grey (10.4).
 
 ### 5.10 Puddles  [now, off by default]
 
@@ -876,3 +876,14 @@ deleted, and with them the last particles this mod emitted.
   weather particles setting no longer mentions them.
 - `/weather clouds` reports what the player was sent: cover, darkness, and
   the floor and how far over them it is.
+
+### 10.5 Under the ground (2026-09-18, evening)
+
+The Spindle's caves got denser (e9bd43a: a cave under 18 to 69 % of the
+columns in the cave biomes) and now come up to the surface, so a player
+walks from a storm into the ground far more often. Rain already stopped
+there, but two things followed them down: the engine pulls a sky
+modifier's fog in wherever the player is, and the loop is `everywhere`.
+Both are now scaled by the sun light at the player's head, 0 to 15: full
+in the open, part way in a cave mouth, and the plain sky and silence
+underground. The clouds stay set, so the sky is right when they come out.

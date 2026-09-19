@@ -624,7 +624,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     let floor = storm_clouds.base.expect("the floor is sent per player");
     let want = ((dome_y(x, 100.0) + 400.0) / 64.0).floor() * 64.0;
     assert_eq!(f64::from(floor), want, "400 over the dome under the player, in steps of 64");
-    assert!(storm_clouds.ease_ticks > 0);
+    assert!(storm_clouds.ease_ticks > 0, "a change of weather is eased");
     let said = r.reply(ALICE, "/weather clouds");
     assert!(said.starts_with("cover 1.00, darkness 0.90"), "{said}");
     println!("ok  clouds: deck {deck:?}; storm `{said}`");
@@ -634,16 +634,39 @@ fn weather_check(storage: Arc<Storage>) -> String {
     r.tick(41);
     assert!(r.rain_of(BOB).is_some() && r.sky_of(BOB).is_some(), "the newcomer is under the storm too");
     assert!(r.sounds.loops.lock().unwrap().iter().any(|l| l.0.ends_with("weather")), "and hears it");
+    let theirs = r.clouds_of(BOB).expect("and their clouds, from the first evaluation");
+    assert_eq!(theirs.ease_ticks, 0, "a newcomer's sky is there at once, not eased in from clear");
     r.leave(BOB);
 
+    // Underground the storm is neither seen nor heard: the engine pulls a sky
+    // modifier's fog in wherever the player is, and an `everywhere` loop
+    // plays at full storm, so both go with the sky. Back out, both return.
+    let head = (x as i32, 100);
+    r.world.roofs.lock().unwrap().push(head);
+    let stops = r.sounds.stops.lock().unwrap().len();
+    r.tick(41);
+    assert!(r.rain_of(ALICE).is_none(), "no rain in a cave");
+    assert!(r.sky_of(ALICE).is_none(), "nor the storm's fog: {:?}", r.sky_of(ALICE));
+    assert!(r.sounds.stops.lock().unwrap().len() > stops, "nor its loop");
+    assert!(r.clouds_of(ALICE).is_some(), "the clouds stay set for when they come out");
+    r.world.roofs.lock().unwrap().retain(|c| *c != head);
+    let loops = r.sounds.loops.lock().unwrap().len();
+    r.tick(41);
+    let back = r.sky_of(ALICE).expect("out of the cave, the storm's sky again");
+    assert!(back.fog_distance < 0.4, "{back:?}");
+    assert!(r.rain_of(ALICE).is_some(), "and its rain");
+    assert!(r.sounds.loops.lock().unwrap().len() > loops, "and its loop");
+    println!("ok  underground: no rain, fog or loop; back out, all three return");
+
     // Clearing: the storm fades out to Cloudy/clear and the loop stops.
+    let stops = r.sounds.stops.lock().unwrap().len();
     assert!(r.reply(ALICE, "/weather clear").contains("back to its own weather"));
     r.say(ALICE, "/weather set clear 10");
     r.tick(40 * 25);
     assert_eq!(r.hud(ALICE), "");
     assert!(r.rain_of(ALICE).is_none(), "the rain is cleared");
     assert!(r.sky_of(ALICE).is_none(), "and the plain sky is back");
-    assert!(!r.sounds.stops.lock().unwrap().is_empty(), "the loop stopped");
+    assert!(r.sounds.stops.lock().unwrap().len() > stops, "the loop stopped");
     println!("ok  cleared: HUD empty, rain and sky cleared, loop stopped");
 
     // A clear sky keeps a few white clouds, and the floor has not moved.

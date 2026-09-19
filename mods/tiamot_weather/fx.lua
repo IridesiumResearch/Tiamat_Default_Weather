@@ -144,11 +144,13 @@ local function precipitation_for(uuid, square, share, wind, was)
     M.stats.precipitation = M.stats.precipitation + 1
 end
 
--- Towards the kind's sky by how far it has eased in. The particles setting
+-- Towards the kind's sky by how far it has eased in, and by how much of the
+-- sky the player is under: the engine pulls a modifier's fog in everywhere,
+-- so a blizzard's fog would follow them down a cave. The particles setting
 -- does not touch this: the weather's own daylight is not a particle.
-local function sky_for(uuid, square, was)
+local function sky_for(uuid, square, exposure, was)
     local row = M.SKY[square.kind]
-    local far = square.intensity / 1000
+    local far = square.intensity * exposure // 15 / 1000
     if row == nil or far <= 0 then
         if was.sky then
             was.sky = nil
@@ -159,7 +161,7 @@ local function sky_for(uuid, square, was)
     local function towards(one, other)
         return one + (other - one) * far
     end
-    local key = string.format("%s:%d", square.kind, square.intensity)
+    local key = string.format("%s:%.3f", square.kind, far)
     if was.sky == key then
         return
     end
@@ -181,8 +183,11 @@ local LOOP_SOUND = { rain = "rain", storm = "rain", blizzard = "wind", dust = "w
 local LOOP_GAIN = { rain = 0.8, storm = 1.0, blizzard = 1.0, dust = 0.9, ash_storm = 0.8 }
 local LOOP_ID = "weather"
 
-local function loop_for(uuid, square, was)
-    local sound = square.intensity > 0 and LOOP_SOUND[square.kind] or nil
+-- Heard as far as the sky reaches: fading into a cave mouth, and gone under
+-- the ground, where an `everywhere` loop would otherwise play at full storm.
+local function loop_for(uuid, square, exposure, was)
+    local heard = square.intensity * exposure // 15
+    local sound = heard > 0 and LOOP_SOUND[square.kind] or nil
     if sound == nil then
         if was.loop then
             was.loop = nil
@@ -191,7 +196,7 @@ local function loop_for(uuid, square, was)
         return
     end
     -- Quarter steps: a nudge every evaluation is cheap, but the table is not.
-    local step = math.max(1, (square.intensity + 125) // 250)
+    local step = math.max(1, (heard + 125) // 250)
     local key = sound .. ":" .. step
     if was.loop == key then
         return
@@ -332,12 +337,16 @@ local function clouds_for(uuid, where, square, was)
     if was.clouds == key then
         return
     end
+    -- A player's first sky is there at once: easing it in from nothing would
+    -- show a newcomer a clear sky for the first half minute. Only a change of
+    -- weather is eased.
+    local first = was.clouds == nil
     was.clouds = key
     game.set_clouds(uuid, {
         cover = cover,
         darkness = darkness,
         base = base,
-        ease_ticks = config.CLOUD_EASE_TICKS,
+        ease_ticks = first and 0 or config.CLOUD_EASE_TICKS,
     })
     M.clouds_sent[uuid] = { cover = cover, darkness = darkness, base = base }
     M.stats.clouds = M.stats.clouds + 1
@@ -361,8 +370,9 @@ controller.on_evaluated(function()
             local wind = climate.wind(where.x, where.z, tick)
             -- Rain a player cannot see costs them nothing.
             local head = { x = math.floor(where.x), y = math.floor(where.y + 1.6), z = math.floor(where.z) }
-            local under_sky = game.get_light(head).sun > 0
-            if under_sky then
+            -- 15 is open sky; less is a cave mouth, an overhang or a doorway.
+            local exposure = math.max(0, math.min(15, game.get_light(head).sun))
+            if exposure > 0 then
                 precipitation_for(uuid, square, share, wind, was)
             else
                 M.stats.underground = M.stats.underground + 1
@@ -371,8 +381,8 @@ controller.on_evaluated(function()
                     game.set_precipitation(uuid, nil)
                 end
             end
-            sky_for(uuid, square, was)
-            loop_for(uuid, square, was)
+            sky_for(uuid, square, exposure, was)
+            loop_for(uuid, square, exposure, was)
             if HAS_CLOUDS then
                 clouds_for(uuid, where, square, was)
             end

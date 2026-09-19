@@ -81,11 +81,13 @@ engine has no operators yet.
 
 ## What is not here yet
 
-- **Damp ground and puddles are `"auto"`:** off until the Spindle exports
-  `add_soil_alias` or `add_harmless_fluid` and accepts the call. See
+- **Damp ground and puddles are `"auto"`:** on exactly when the Spindle
+  exports `add_soil_alias` and `add_harmless_fluid` and accepts the call,
+  which it has since 2026-09-17; off on any other world. See
   [`docs/exports-contract.md`](docs/exports-contract.md), which also lists
   what Weather exports for other mods.
+- **The cloud floor mirrors the Spindle's dome** until the Spindle exports
+  `dome_y`.
 - **Nothing on the engine sheet is left unbuilt.** The cloud deck is the
   engine's raymarch (2026-09-18), shaped after `docs/reference/`. How fine it
   is drawn is each player's own graphics setting.
-- **Per-player particles and sound** need asks W4 and W5.
