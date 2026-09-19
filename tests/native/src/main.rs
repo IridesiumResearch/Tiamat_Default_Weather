@@ -614,7 +614,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // The cloud deck: registered once, shaped after the references, and
     // steered per player. Nothing is emitted as particles any more.
     let deck = r.vm.registered_clouds().expect("weather registers a cloud deck");
-    assert_eq!((deck.cell, deck.detail), (8.0, 2), "cubes of 8 breaking into 4s on the surface");
+    assert_eq!((deck.cell, deck.detail), (16.0, 2), "cubes of 16 breaking into 8s on the surface");
     assert!(deck.thickness >= 128.0 && deck.towers > 0.0, "heaps with towers: {deck:?}");
     assert!((deck.drift[0] - 0.5).abs() < 1e-6 && deck.drift[1] == 0.0, "drifts with the fronts: {:?}", deck.drift);
     assert!(deck.shade[2] > deck.shade[0], "a blue-violet shade: {:?}", deck.shade);

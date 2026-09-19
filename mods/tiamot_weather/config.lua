@@ -68,11 +68,14 @@ return {
     CLOUD_ABOVE = 400,          -- blocks over the ground the cloud floor sits
     CLOUD_BASE_STEP = 64,       -- the floor moves in steps of this, so walking does not nudge the sky
     CLOUD_THICKNESS = 160,      -- blocks from the floor to the tallest tower's top
-    CLOUD_CELL = 8,             -- blocks per cube
+    -- Coarse on purpose (2026-09-18): 8-block cubes cost a frame at the
+    -- horizon for detail nobody could see. 16 halves the steps a ray takes;
+    -- two octaves and fewer towers read as heaps rather than as noise.
+    CLOUD_CELL = 16,            -- blocks per cube
     CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
-    CLOUD_FREQUENCY = 1 / 600,  -- the field's horizontal scale, cycles per block
-    CLOUD_OCTAVES = 3,
-    CLOUD_TOWERS = 0.35,        -- how much taller the highest heaps grow
+    CLOUD_FREQUENCY = 1 / 500,  -- the field's horizontal scale, cycles per block
+    CLOUD_OCTAVES = 2,
+    CLOUD_TOWERS = 0.2,         -- how much taller the highest heaps grow
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
     THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes

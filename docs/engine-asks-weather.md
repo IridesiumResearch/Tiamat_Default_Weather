@@ -1,5 +1,11 @@
 # Engine asks from weather (2026-09-16)
 
+> **New asks are filed in the engine repo, `docs/engine-asks/tiamot_weather.md`**
+> (`../Tiamot/docs/engine-asks/` from here), where the engine agent reads
+> every mod's asks. This file is the history of W1–W9. The two items
+> deferred from W2, the cover map and cloud shadows, are open there as W10
+> and W11.
+
 These asks come out of the weather plan (`weather-plan.md`) for the
 standalone `tiamot_weather` mod. **They are numbered W1–W9**, not in the
 Spindle's `docs/engine-asks.md` sequence. They were first numbered 33–41 to

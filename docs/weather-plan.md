@@ -861,7 +861,7 @@ Engine 42368d5..55607e7 built W2 as a raymarch. The particle clouds are
 deleted, and with them the last particles this mod emitted.
 
 - **One deck, registered at load**, shaped after `docs/reference/`: 8-block
-  cubes breaking into 4-block ones on the surface, 160 blocks from floor to
+  cubes breaking into 4-block ones on the surface (16 and 8 since 10.6), 160 blocks from floor to
   the tallest top, towers at 0.35, a blue-violet shade, and a drift of half a
   block a second along +x, which is the fronts' own drift, so the sky and the
   rain under it travel together.
@@ -887,3 +887,23 @@ modifier's fog in wherever the player is, and the loop is `everywhere`.
 Both are now scaled by the sun light at the player's head, 0 to 15: full
 in the open, part way in a cave mouth, and the plain sky and silence
 underground. The clouds stay set, so the sky is right when they come out.
+
+### 10.6 Coarser clouds, and what the engine owes their shape (2026-09-18, night)
+
+The designer, in game: the deck is far too fine, worst towards the horizon,
+and it costs the frame; and it reads as a noise pattern running through the
+sky rather than as cloud, which wants flat bottoms and bulbous tops.
+
+- **The deck is coarser.** 16-block cubes (from 8), two octaves (from
+  three), 1/500 (from 1/600), towers 0.2 (from 0.35). Rendered in the
+  engine's own screenshot harness at 960 x 540, the deck's cost over a bare
+  sky fell from 0.65 to 0.30 ms looking at the horizon from the ground, and
+  from 2.9 to 1.2 ms looking across the top of the deck from above it.
+- **The shape is the engine's.** The field is a thresholded fbm read as a
+  height map: the underside lifts where the field is weak, which is the
+  stepped terracing, and the top rises linearly, which is plateaus. No
+  field a mod can register makes a flat base or a dome. A prototype of the
+  shader (`docs/reference/cloud-prototype-2026-09-18.patch`) draws round
+  heaps over flat bases with a fake subsurface glow, pictured beside the
+  current deck in `docs/reference/cloud-prototype-2026-09-18.png`. It is
+  filed as ask W12 in the engine repo's `docs/engine-asks/tiamot_weather.md`.
