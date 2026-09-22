@@ -9,6 +9,7 @@
 --   override(x, y, z)     nil | "ash" | "dust" | "sea", read from the ground at feet (x, y, z)
 --   wind(x, z, tick)      a direction { x, z }, |x| + |z| = 1, no square root
 --   damp                  dry block id (string) -> damp block id (string)
+--   canopy                numeric material -> true: leaves, under which it is still outdoors
 --   covered               numeric material -> true: ground snow never settles on
 --   hud_row               where hud.lua draws the weather line
 --

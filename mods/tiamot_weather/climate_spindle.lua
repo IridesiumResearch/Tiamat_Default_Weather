@@ -227,6 +227,14 @@ local DUST_GROUND = ids({ "sand", "salt" })
 -- Spindle's Frozen Wastes run their own drift rule on their snow.
 M.covered = ids({ "snow", "ice", "clear_ice", "permafrost" })
 
+-- A canopy: what a player under trees has overhead. Leaves dim the sun
+-- (engine 41ce033, `light_falloff`), so under them the sun at head height
+-- reads like a cave mouth's; with one of these on top of the column it is a
+-- forest, and the storm is still over it (fx.lua).
+M.canopy = ids({ "oak_leaves", "willow_leaves", "ironwood_leaves", "kapok_leaves", "apple_leaves",
+    "cherry_leaves", "birch_leaves", "mangrove_leaves", "acacia_leaves", "fir_needles", "juniper_needles",
+    "redwood_needles", "apple_blossom", "cherry_blossom", "gorse" })
+
 -- Where a puddle may be left: open ground, not canopies or plants. The
 -- Spindle's leaves rule removes a leaf block ANY fluid presses on (plan 7).
 M.puddle_ground = ids({ "dirt", "packed_dirt", "sand", "gravel", "stone", "mud", "dried_mud" })

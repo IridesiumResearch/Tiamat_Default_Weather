@@ -98,6 +98,9 @@ return {
     CLOUD_TOWERS = 0.2,         -- how much taller the highest heaps grow
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
+    CLOUD_MAP_SIZE = 16,        -- the cover map around a player, in squares a side (engine max 16)
+    CLOUD_MAP_TICKS = 400,      -- how stale a square nobody is in may be before it is asked again
+    CANOPY_SCAN = 48,           -- blocks over a player's head a canopy is looked for
     THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes
     MEGA_THUNDER_ODDS = 3,      -- and in a mega storm at full strength
     HUD_ROW_SPINDLE = 78,       -- below the Spindle's biome name (y = 44, size 26)

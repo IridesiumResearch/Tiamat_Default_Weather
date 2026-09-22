@@ -983,3 +983,29 @@ Once it lands: clear a few cumulus and some altocumulus; cloudy all three
 low and mid genera; rain and snow a thick stratocumulus sheet; storm and
 blizzard stratocumulus under cumulonimbus; a mega storm cumulonimbus 1.
 
+### 10.11 The cover map, forests, and washing (2026-09-22)
+
+- **A storm over the next valley** (W10, engine 8929ca1). Every player is
+  sent a `map` with their clouds: 16 by 16 squares of 256 blocks round their
+  own, four kilometres. A square somebody is in answers with its eased
+  state, so the cell overhead is the sky overhead; one nobody is in is
+  asked of the weather function at its centre over its own ground, and
+  kept `CLOUD_MAP_TICKS` (400) before it is asked again, shared by everyone
+  near it. So at most 256 evaluations of the function every twenty seconds
+  round a player, and a steady sky sends at most that refresh. `/weather
+  clouds` says how many of the squares round you are stormy. On an engine
+  without the map, the first refusal turns it off and says so in the log.
+- **A storm in a forest is a storm** (engine 41ce033). Leaves may now dim
+  the sun (`light_falloff`), and the sky, fog and loop are scaled by the sun
+  at a player's head, so under a canopy a storm would have half gone quiet.
+  When the sun there is dimmed but not gone and the topmost thing over the
+  player is a canopy block (the Spindle's leaves, needles, blossom and
+  gorse, `climate.canopy`), it counts as open sky. No sun at all is still
+  underground, so a cave under a wood stays a refuge. Built ahead of the
+  Spindle using `light_falloff`, which it asked for and has not yet
+  declared.
+- **Puddles and washable plants** (engine e4ac3a8). `washes_away` clears a
+  plant for any fluid, rainwater included. The Spindle's own washing rule
+  skips harmless fluids, so nothing is stripped today; filed as W14
+  (`washes = false` on a fluid) before the Spindle moves to the engine's.
+

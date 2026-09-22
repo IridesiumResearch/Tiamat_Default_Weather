@@ -20,7 +20,7 @@ use std::{
 
 use tiamot_core::{
     BlockPos, MaterialId,
-    atmosphere::{self, Clouds, FlashRequest, Precipitation, SkyModifier},
+    atmosphere::{self, CloudMap, Clouds, FlashRequest, Precipitation, SkyModifier},
     ent::{self, Entity, EntityId, Owner, Transform},
     fluid::{self, Fluid, FluidId},
     hud::{self, State, Value, Values},
@@ -171,6 +171,7 @@ struct Atmosphere {
     flashes: Mutex<Vec<(u64, FlashRequest)>>,
     clouds: Mutex<HashMap<[u8; 32], Option<Clouds>>>,
     cloud_calls: Mutex<usize>,
+    maps: Mutex<HashMap<[u8; 32], Option<CloudMap>>>,
 }
 
 impl atmosphere::Access for Atmosphere {
@@ -186,6 +187,10 @@ impl atmosphere::Access for Atmosphere {
     fn set_clouds(&self, player: PlayerUuid, clouds: Option<Clouds>) -> bool {
         self.clouds.lock().unwrap().insert(*player.as_bytes(), clouds);
         *self.cloud_calls.lock().unwrap() += 1;
+        true
+    }
+    fn set_cloud_map(&self, player: PlayerUuid, map: Option<CloudMap>) -> bool {
+        self.maps.lock().unwrap().insert(*player.as_bytes(), map);
         true
     }
     fn set_precipitation(&self, player: PlayerUuid, precipitation: Option<Precipitation>) -> bool {
@@ -226,6 +231,8 @@ struct World {
     now: Mutex<u64>,
     /// Columns with a roof high above, as (x, z).
     roofs: Mutex<Vec<(i32, i32)>>,
+    /// Columns under a canopy that dims the sun to 6 below it, as (x, z).
+    canopies: Mutex<Vec<(i32, i32)>>,
     /// The fluid layer: position -> (fluid id, volume).
     fluids: Mutex<HashMap<(i32, i32, i32), (u8, u32)>>,
     /// Every fluid write: (tick, position, fluid id, volume).
@@ -337,6 +344,9 @@ impl LightSource for World {
         if self.roofs.lock().unwrap().contains(&(pos.x, pos.z)) {
             return Light::DARK;
         }
+        if self.canopies.lock().unwrap().contains(&(pos.x, pos.z)) {
+            return Light::new(6, 0, 0, 0);
+        }
         let (top, _) = *self.floor.lock().unwrap();
         let covered = self
             .blocks
@@ -376,7 +386,8 @@ struct Rig {
 
 // The stand-in Spindle: every block the weather mod looks up by name.
 const SPINDLE_STANDIN: &str = "for _, id in ipairs({ 'dirt', 'packed_dirt', 'sand', 'snow', 'ice', 'clear_ice', \
-    'permafrost', 'gravel', 'stone', 'mud', 'dried_mud', 'lava_rock', 'pumice', 'sulfur', 'obsidian', 'dark_sand', 'salt', 'oak_log', 'birch_log', 'grass' }) \
+    'permafrost', 'gravel', 'stone', 'mud', 'dried_mud', 'lava_rock', 'pumice', 'sulfur', 'obsidian', 'dark_sand', 'salt', 'oak_log', 'birch_log', 'grass', \
+    'oak_leaves' }) \
     do game.register_block{ id = id } end";
 
 impl Rig {
@@ -635,6 +646,21 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(said.starts_with("cover 1.00, darkness 0.90"), "{said}");
     println!("ok  clouds: deck {deck:?}; storm `{said}`");
 
+    // The cover map: sixteen squares a side round Alice's, her own in the
+    // middle at the storm she is under, and the forced storm on her square
+    // alone, so the squares round it are the weather's own.
+    let map = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a cover map is sent");
+    assert_eq!((map.size, map.cell), (16, 256.0));
+    let cx = (x as i32).div_euclid(256);
+    assert_eq!(map.origin, [((cx - 8) * 256) as f32, ((100_i32.div_euclid(256) - 8) * 256) as f32]);
+    assert_eq!((map.cover.len(), map.darkness.len()), (256, 256));
+    let middle = 8 * 16 + 8;
+    assert!(map.cover[middle] >= 250 && map.darkness[middle] >= 225, "overhead is the storm: {} {}", map.cover[middle], map.darkness[middle]);
+    let calmer = map.darkness.iter().filter(|d| **d < 128).count();
+    assert!(calmer > 0, "the storm is not everywhere: every square's darkness is {:?}", &map.darkness[..16]);
+    assert!(said.contains("of the 256 squares around you are stormy"), "{said}");
+    println!("ok  cover map: 16 x 16 squares of 256, the storm overhead, {calmer} squares calmer");
+
     // A second player gets their own rain, sky and loop.
     r.join(BOB, x + 5.0, dome_y(x, 100.0) + 1.0, 100.0);
     r.tick(41);
@@ -668,6 +694,28 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(r.sounds.loops.lock().unwrap().len() > loops, "and its loop");
     println!("ok  underground: no rain, fog or loop; back out, all three return");
 
+    // Under a forest it is still storming: leaves dim the sun to 6, which
+    // alone reads like a cave mouth, but a canopy overhead is outdoors.
+    let crown_y = dome_y(x, 100.0) as i32 + 12;
+    r.world.canopies.lock().unwrap().push(head);
+    let leaves = r.material("tiamot_default_world:oak_leaves");
+    r.world.put(head.0, crown_y, head.1, leaves, ONE_LAYER);
+    r.tick(41);
+    let forest = r.sky_of(ALICE).expect("the storm's sky under the trees");
+    assert!(forest.fog_distance < 0.4, "the fog is not halved under leaves: {forest:?}");
+    assert!(r.rain_of(ALICE).is_some(), "and it rains");
+    // Rock in the same place is an overhang, and the storm fades by the sun.
+    let rock = r.material("tiamot_default_world:stone");
+    r.world.put(head.0, crown_y, head.1, rock, ONE_LAYER);
+    r.tick(41);
+    let overhang = r.sky_of(ALICE).expect("some of the storm's sky under an overhang");
+    assert!(overhang.fog_distance > forest.fog_distance + 0.2, "less of it: {overhang:?}");
+    r.world.canopies.lock().unwrap().clear();
+    r.world.put(head.0, crown_y, head.1, rock, 0);
+    r.tick(41);
+    println!("ok  under a canopy the storm is whole (fog {:.2}); under an overhang it fades (fog {:.2})",
+        forest.fog_distance, overhang.fog_distance);
+
     // Clearing: the storm fades out to Cloudy/clear and the loop stops.
     let stops = r.sounds.stops.lock().unwrap().len();
     assert!(r.reply(ALICE, "/weather clear").contains("back to its own weather"));
@@ -685,7 +733,11 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert_eq!(fair.base, Some(floor));
     let calls = *r.atmosphere.cloud_calls.lock().unwrap();
     r.tick(400);
-    assert_eq!(*r.atmosphere.cloud_calls.lock().unwrap(), calls, "a steady sky sends nothing more");
+    // Ten evaluations: overhead nothing changes, and the cover map around it
+    // refreshes a square nobody is in at most every CLOUD_MAP_TICKS, as the
+    // fronts move. So one send at most, not one an evaluation.
+    let sent = *r.atmosphere.cloud_calls.lock().unwrap() - calls;
+    assert!(sent <= 1, "a steady sky sends only the map's own refresh: {sent} in ten evaluations");
     println!("ok  clear sky: cover {:.2}, darkness {:.2}", fair.cover, fair.darkness);
 
     // The floor follows the dome: at the rim it is kilometres lower than at the axis.

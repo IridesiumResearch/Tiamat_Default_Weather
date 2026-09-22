@@ -7,6 +7,8 @@
 > and W11. W12 (the deck's cost at the horizon, and heaps with flat bases,
 > domed tops and a fake subsurface glow in place of a thresholded field) was
 > filed there on 2026-09-18 and built in engine 0d8e857 the same night.
+> W10, the cover map, was built in engine 8929ca1 (2026-09-20). W14, a fluid
+> that does not wash plants away, was filed 2026-09-22.
 
 These asks come out of the weather plan (`weather-plan.md`) for the
 standalone `tiamot_weather` mod. **They are numbered W1–W9**, not in the

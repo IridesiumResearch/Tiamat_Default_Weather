@@ -61,6 +61,7 @@ function M.override()
 end
 
 M.covered = {}
+M.canopy = {}
 -- Nil: any whole block of one material may hold a puddle.
 M.puddle_ground = nil
 M.hot_fluids = {}

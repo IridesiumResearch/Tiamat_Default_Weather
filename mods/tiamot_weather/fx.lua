@@ -105,7 +105,7 @@ game.register_setting{
 local SETTING = "tiamot_weather:particles"
 local SHARE = { off = 0, low = 1, full = 2 }
 
-M.stats = { precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0 }
+M.stats = { precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0 }
 
 -- ------------------------------------------------------------ one player's weather
 
@@ -353,21 +353,95 @@ M.CLOUDS = {
 -- What each player was last sent, for /weather clouds.
 M.clouds_sent = {}
 
-local function clouds_for(uuid, where, square, was)
-    local row = M.CLOUDS[square.kind] or M.CLOUDS.clear
+-- The sky over one kind of weather: cover and darkness, 0 to 1.
+local function sky_of(kind, intensity, mega)
+    local row = M.CLOUDS[kind] or M.CLOUDS.clear
     local cover, darkness = row.cover, row.darkness
-    if controller.KINDS[square.kind].precip then
-        local far = square.intensity / 1000
+    local k = controller.KINDS[kind]
+    if k and k.precip then
+        local far = intensity / 1000
         local from = M.CLOUDS.cloudy
         cover = from.cover + (row.cover - from.cover) * far
         darkness = from.darkness + (row.darkness - from.darkness) * far
     end
     -- A mega storm closes the sky and blackens it.
-    local up = mega_of(square)
+    local up = (mega or 0) / 1000
     cover = cover + (1 - cover) * up
     darkness = darkness + (1 - darkness) * up
+    return cover, darkness
+end
+M.sky_of = sky_of
+
+-- **The cover map** (engine `set_clouds{ map }`, ask W10, 8929ca1): the
+-- weather over the squares around a player, so a storm over the next valley
+-- is seen from the clear one and a front can be watched coming. One cell per
+-- SQUARE, the resolution the weather itself has. A square somebody is in
+-- answers with its eased state, so the cell overhead is the sky overhead;
+-- one nobody is in is asked of the weather function at its centre, over its
+-- own ground height, and kept a while, since the fronts move slowly and
+-- every player near it shares the answer.
+local HAS_MAP = true
+local map_cells, map_kept = {}, 0
+
+local function cell_sky(cx, cz, tick)
+    local key = controller.key_of(cx, cz)
+    local square = controller.squares[key]
+    if square and square.kind and square.members and #square.members > 0 then
+        return sky_of(square.kind, square.intensity, square.mega)
+    end
+    local c = map_cells[key]
+    if c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
+        if map_kept > 8192 then
+            map_cells, map_kept = {}, 0
+        end
+        local x, z = controller.centre_of(cx, cz)
+        local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
+        local cover, darkness = sky_of(kind, intensity, mega)
+        if c == nil then
+            map_kept = map_kept + 1
+        end
+        c = { tick = tick, cover = cover, darkness = darkness }
+        map_cells[key] = c
+    end
+    return c.cover, c.darkness
+end
+
+-- The map around a square, and a key that changes when any byte of it does.
+local function map_around(square, tick)
+    local size = config.CLOUD_MAP_SIZE
+    local half = size // 2
+    local covers, darks, bytes = {}, {}, {}
+    local storms = 0
+    for j = 0, size - 1 do
+        for i = 0, size - 1 do
+            local cover, darkness = cell_sky(square.cx - half + i, square.cz - half + j, tick)
+            local n = #covers + 1
+            covers[n], darks[n] = cover, darkness
+            bytes[n] = string.char(math.floor(cover * 255 + 0.5), math.floor(darkness * 255 + 0.5))
+            if darkness >= 0.5 then
+                storms = storms + 1
+            end
+        end
+    end
+    local x0, z0 = controller.centre_of(square.cx - half, square.cz - half)
+    local map = {
+        origin = { x = x0 - config.SQUARE // 2, z = z0 - config.SQUARE // 2 },
+        cell = config.SQUARE,
+        size = size,
+        cover = covers,
+        darkness = darks,
+    }
+    return map, square.cx .. ":" .. square.cz .. ":" .. table.concat(bytes), storms
+end
+
+local function clouds_for(uuid, where, square, was)
+    local cover, darkness = sky_of(square.kind, square.intensity, square.mega)
     local base = floor_at(where.x, where.z)
-    local key = string.format("%.2f:%.2f:%d", cover, darkness, base)
+    local map, map_key, storms
+    if HAS_MAP then
+        map, map_key, storms = map_around(square, wx.now)
+    end
+    local key = string.format("%.2f:%.2f:%d:%s", cover, darkness, base, map_key or "")
     if was.clouds == key then
         return
     end
@@ -376,17 +450,50 @@ local function clouds_for(uuid, where, square, was)
     -- weather is eased.
     local first = was.clouds == nil
     was.clouds = key
-    game.set_clouds(uuid, {
+    local spec = {
         cover = cover,
         darkness = darkness,
         base = base,
+        map = map,
         ease_ticks = first and 0 or config.CLOUD_EASE_TICKS,
-    })
-    M.clouds_sent[uuid] = { cover = cover, darkness = darkness, base = base }
+    }
+    -- An engine older than the map refuses the field; send without it, once
+    -- and for good.
+    local ok, err = pcall(game.set_clouds, uuid, spec)
+    if not ok then
+        if map == nil then
+            error(err, 0)
+        end
+        HAS_MAP = false
+        game.log("tiamot_weather: this engine takes no cloud map, so storms are not seen at a distance: " .. tostring(err))
+        spec.map = nil
+        game.set_clouds(uuid, spec)
+    end
+    M.clouds_sent[uuid] = { cover = cover, darkness = darkness, base = base, storms = HAS_MAP and storms or nil }
     M.stats.clouds = M.stats.clouds + 1
 end
 
 -- ------------------------------------------------------------ the tick
+
+-- How much of the sky a player's head is under, 0 to 15: the sun there, and
+-- 15 under a canopy. Leaves dim the sun (engine 41ce033), so under a forest
+-- the sun alone reads like a cave mouth's and a storm would half go quiet;
+-- the topmost thing over the player being leaves is what tells a forest from
+-- an overhang. No sun at all is underground whatever is overhead, so a cave
+-- under a wood is still a refuge.
+local function exposure_at(head)
+    local sun = math.max(0, math.min(15, game.get_light(head).sun))
+    if sun == 0 or sun == 15 or next(climate.canopy) == nil then
+        return sun
+    end
+    local top = game.surface_at{ x = head.x, z = head.z, from = head.y + config.CANOPY_SCAN,
+        depth = config.CANOPY_SCAN, skip_passable = true }
+    if top and top.y > head.y and climate.canopy[top.material] then
+        M.stats.canopy = M.stats.canopy + 1
+        return 15
+    end
+    return sun
+end
 
 -- Everything a player stands under, set when the weather is evaluated.
 controller.on_evaluated(function()
@@ -404,8 +511,9 @@ controller.on_evaluated(function()
             local wind = climate.wind(where.x, where.z, tick)
             -- Rain a player cannot see costs them nothing.
             local head = { x = math.floor(where.x), y = math.floor(where.y + 1.6), z = math.floor(where.z) }
-            -- 15 is open sky; less is a cave mouth, an overhang or a doorway.
-            local exposure = math.max(0, math.min(15, game.get_light(head).sun))
+            -- 15 is open sky or a forest; less is a cave mouth, an overhang
+            -- or a doorway.
+            local exposure = exposure_at(head)
             if exposure > 0 then
                 precipitation_for(uuid, square, share, wind, was)
             else

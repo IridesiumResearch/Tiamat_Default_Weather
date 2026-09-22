@@ -451,6 +451,9 @@ function Stream:next_bool() end
 ---@field transparent boolean? Whether this block can be seen through: glass. **A flag, not an alpha value** — what it looks like is its texture's own alpha, and a second opacity number beside it would be two sources of truth for one appearance. Three things change (Sub-Node Contract §8.1): a face draws where exactly one side of it is transparent, so a wall behind a window is not a hole and two panes together do not double up; the block is drawn in a blended pass after the opaque world; and light passes through it, so a glass roof does not make a dark room. **Collision does NOT change — glass is solid** and you cannot walk through a window. Only a whole block of one transparent material passes light; a chiselled or mixed block holding glass falls back to the ordinary cell rule.
 ---@field cutout boolean? Whether this block is see-through in PLACES rather than everywhere: leaves, a fern, a grate. **Not a variant of `transparent` — the opposite culling rule**, and a block declaring both is refused rather than given whichever the engine tests first. Glass hides the face between two panes so a window does not double up; foliage KEEPS the faces between two leaf blocks, because culled, a canopy is a hollow shell whose alpha holes look straight through the world at the sky. Drawn alpha-tested with the opaque world rather than blended, so it writes depth, occludes itself correctly at every angle, and needs none of the sorting §8.1 gave up on. Light passes as it does through glass; dappled shade is not expressible. Collision does NOT change — leaves are solid. The cost is that every interior face of a mass of foliage is drawn (Sub-Node Contract §8.2), which is what makes it look like foliage rather than a painted box.
 ---@field passable boolean? Whether a body walks through it: grass, ferns, vines. **Collision only.** The cell is still there for everything else — it meshes, it is lit, and a ray still STOPS at it, which is what lets a player aim at a tuft and break it. **It does not hold fluid out:** a block holding nothing but passable cells takes a whole block of water, so a plant under water is saturated rather than standing in a bubble of air, and a body swimming through it is as submerged as the water beside it. Without this every plant is a lip: collision is at sub-node resolution, so a two-cell fern is two thirds of a yard to climb, and foliage has to be built around that rather than around what it should look like (Sub-Node Contract §2).
+---@field friction number? How much of the ordinary grip a body standing on it gets, 0 to 1: ice. Default 1. **Slow to start, slow to stop, slow to turn** — it scales how much speed a tick loses and the push that replaces it together, so a body on `friction = 0.1` glides several blocks after letting go; the top speed is the gait's own, reached more slowly. `0` neither slows nor pushes: a body keeps what it arrived with. Read at SUB-NODE resolution under the centre of the feet (Sub-Node Contract §2), so a block chiselled half from ice is slick only where the ice is. Walls need nothing: a body already slides along a wall. Outside 0..1 is refused. The client predicts the slide, so a slick floor is not a rubber-banding one.
+---@field light_falloff integer? How many levels of light a block of this material takes out of what passes through it, 0..15. Default 0, which is exactly what every block did before this existed. **For foliage that shades**: leaves are `cutout`, and a cutout block passes light the way glass does, so a canopy over a forest floor left it as bright as a meadow. Two levels a block gives a rainforest floor about 6 of 15 under three blocks of canopy. Daylight's free fall straight down ends at the first dimming block, so everything below the canopy costs the ordinary level a block as well — which is what makes a thick canopy dark beneath and a thin one dappled (Sub-Node Contract §8.2). Whole blocks of one material only, like `transparent`.
+---@field washes_away boolean? Whether fluid running into this block sweeps it away: grass in a flood, a reed in a river. The block's cells are cleared as a dig would clear them, and **nothing is dropped** — what a washed plant leaves behind is yours to decide, from `register_on_fluid_flow`. Only a block whose occupied cells are ALL this material is cleared, so a fern sharing a block with a wall cannot take the wall with it. Pair it with `passable`: a flood runs THROUGH a passable plant, which is the case your mod cannot otherwise see, because `on_fluid_flow` reports the flows that were blocked (Sub-Node Contract §4.3).
 ---@field sway boolean? Whether the top of it moves in a fake wind: grass, leaves, a banner. **Presentation only** — the world does not know it is moving, so collision, lighting and the server's idea of where anything is are all untouched. The mesher marks the TOP EDGE of each face and the shader bends only those, so a plant bends from base to tip rather than sliding, and its base stays planted. The motion is smooth noise over world position and time, so a field leans in gusts rather than each plant buzzing on its own (Sub-Node Contract §8.3).
 ---@field billboard boolean|"cross"? Whether its cells are drawn as SPRITES rather than as geometry: grass, ferns, flowers. `true` is one card that turns to face the camera; `"cross"` is two FIXED cards on the diagonals of the run's column — the X Minecraft and Minetest draw, which reads as a plant and holds still as the player walks round it. **This is what a sprite card is here** — the engine has no diagonal geometry, and a cell drawn as a cube shows a NINTH of its texture per face (a texture repeats once per block), so grass built from cells reads as little floating boxes. A run of cells in a column is ONE sprite as tall as the run: one cell is a third of a yard, three is a yard. It turns about the vertical axis only, so it never lies over when you look down. The cells stay where they are for collision, light, fluid and the dig ray — only the drawing changes (Sub-Node Contract §8.4). A billboard may not also declare `transparent` or `cutout` — those are rules about a cell's cube faces and a sprite has none; the pair is refused.
 ---@field tint table? How this block's colour varies across the world: `{ strength = 0.15, scale = 32, low = {0.9, 1.0, 0.85}, high = {1.0, 0.95, 1.0} }`. **This is what stops ground reading as a repeating texture.** The client multiplies the texture by a colour sampled from one smooth field of world position — the same field for every material, so neighbouring materials vary together rather than each drifting on its own. `strength` (0..1) moves the TONE and is the whole of what most mods want: brightness variation alone breaks up the repeat. `low` and `high` are optional RGB multipliers at the two ends of the same field, for a hue shift — grass greener in one place than another — and default to no shift at all. `scale` is how many blocks one period spans, tens rather than ones: a period near a block makes noise rather than ground. Presentation only — nothing in the simulation reads it, and it is not in any determinism hash.
@@ -2000,6 +2003,48 @@ function game.set_hud(player, values) end
 ---@return boolean operator
 function game.is_operator(player) end
 
+---Sets what one player may do: fly, how fast they move, whether they may sprint.
+---
+---**Replaced whole, every call.** A field you leave out goes back to the
+---engine's default, so a mod that stops saying `speed` means "no longer
+---slowed" rather than "keep the last number". `nil` clears everything you set.
+---Compute what somebody may do from your own state and say it; calling this
+---every tick with the same values costs nothing on the wire.
+---
+---- `fly` (default `false`) — OR-ed with the operator list: an operator flies
+---  whatever you say, and a player you grant it to flies without being one.
+---  That is a Creative world whose builders are not all administrators.
+---- `speed` (default `1`) — a multiplier on every gait's top speed and the
+---  acceleration that reaches it. `0` roots the player in place; anything over
+---  16 is clamped. Negative or NaN is an error.
+---- `sprint` (default `true`) — `false` makes the sprint key walk, rather than
+---  stopping anybody.
+---- `wind_sky` (default `true`) — `false` refuses this player the engine's
+---  sky keys. They scrub the CLIENT's clock only, but the client draws stored
+---  sunlight scaled by the sky, so winding to noon lights a player's night.
+---  Turn it off in a world that means its nights; unbinding the keys does not
+---  work, because anybody can bind them again. Returning the sky to the
+---  server's hour is never refused.
+---
+---The client is told and predicts with the same numbers, so a slowed player
+---does not rubber-band. An unknown field is an error, so a typo is not a
+---setting you think you made. Forgotten when the player leaves.
+---
+---Returns `false` for a player who is not here.
+---
+---```lua
+----- Cold slows you a little; an empty stomach stops you running.
+---game.set_player_abilities(uuid, {
+---    speed = cold and 0.8 or 1,
+---    sprint = hunger > 0,
+---    fly = creative,
+---})
+---```
+---@param player string The player's UUID, in hex.
+---@param abilities { fly: boolean?, speed: number?, sprint: boolean?, wind_sky: boolean? }|nil
+---@return boolean told
+function game.set_player_abilities(player, abilities) end
+
 ---Sends one line of chat to one player. Returns whether it was delivered.
 ---
 ---A private message from your mod: nobody else sees it, and it arrives in the
@@ -2178,6 +2223,7 @@ function game.register_model(spec) end
 ---@field id string Required. Unqualified means your own mod's namespace.
 ---@field file string Required. A self-contained `.glb` inside your mod directory.
 ---@field scale number? Multiplies the model's size. Default 1, from 0.01 to 64.
+---@field texture string? A PNG beside the model, drawn on it using the model's own UVs — `"models/cow.png"`. Without one a model is matte white, which is what every model was. Pushed to clients by hash like a block's texture, decoded through the same caps (charter rule 14), and a skin that will not decode leaves the model white with a warning rather than painting it magenta. Your `.glb` must NOT embed the image: the reader refuses embedded images, and this is the separate file it refuses them in favour of.
 
 ---Declares this world's cloud deck. Registration window only.
 ---
@@ -2256,6 +2302,35 @@ function game.register_clouds(spec) end
 ---`base` overrides the registered floor for this player alone, for a world
 ---whose ground height varies enough that one number will not do.
 ---
+---**A storm over the next valley: `map`.** `cover` and `darkness` are one sky
+---for this player, so a front cannot be watched coming. A `map` lays a coarse
+---grid over the WORLD instead, sampled wherever each ray of the deck passes,
+---and the plain `cover` and `darkness` still answer everywhere the grid does
+---not reach. Sent when it changes, like everything else here, and compared
+---before it is sent — so recomputing the same weather every tick costs
+---nothing on the wire.
+---
+---```lua
+----- Sixteen cells of 256 blocks: four kilometres, centred on the player's own
+----- square. Row-major by z, so cover[z * size + x + 1].
+---game.set_clouds(uuid, {
+---    cover = 0.2, darkness = 0.0,
+---    map = {
+---        origin = { x = square_x - 8 * 256, z = square_z - 8 * 256 },
+---        cell = 256, size = 16,
+---        cover = cover, darkness = darkness,
+---    },
+---})
+---```
+---
+---Values are shares of one and travel as bytes, which is a 255th — finer than
+---a sky can show. A grid whose `cover` or `darkness` holds the wrong number of
+---values for its `size` is an error naming both counts, rather than a sky that
+---is quietly wrong. The engine draws the nearest cell rather than blending
+---between them: a cell is hundreds of blocks and the cloud in it has its own
+---edges, so keep the cells at the resolution of your own weather and let the
+---clouds do the rest.
+---
 ---Returns whether that player was there to tell.
 ---
 ---@param uuid string The player's UUID.
@@ -2269,6 +2344,15 @@ function game.set_clouds(uuid, spec) end
 ---@field darkness number? 0 is fair-weather white, 1 is storm grey. Default 0.
 ---@field base number? Overrides the registered floor for this player.
 ---@field ease_ticks integer? How long the client takes to get there. Default 0, at most 2400.
+---@field map Tiamot.CloudMapSpec? A coarse grid of weather over the world, for a storm that can be seen coming. Omit it for one sky everywhere; a call that omits it clears the last one.
+
+---A coarse grid of cloud cover over the world — one cell is hundreds of blocks.
+---@class Tiamot.CloudMapSpec
+---@field origin { x: number, z: number } The world x and z of the grid's corner, in blocks.
+---@field cell number How many blocks a cell covers.
+---@field size integer How many cells a side, 1 to 16. Sixteen 256-block cells is four kilometres, which is past any view distance the engine serves.
+---@field cover number[] `size * size` shares of one, row-major by z: `cover[z * size + x + 1]`.
+---@field darkness number[] The same, for how grey the storm is.
 
 ---There is no `game.register_theme`, and there cannot be.
 ---

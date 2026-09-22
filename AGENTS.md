@@ -501,6 +501,14 @@ hangs a dark haze under the deck as well as greying it: that, rather than
 precipitation spawns around the player's own camera and cannot draw a curtain
 of rain over the next valley.
 
+**A storm over the next valley is `map` on `set_clouds`** — a coarse grid of
+cover and darkness laid over the world rather than over the player, sampled
+where each ray of the deck passes, with the plain `cover` still answering
+outside the grid. Up to 16 cells a side; at the 256-block squares a weather mod
+tends to evaluate that is four kilometres, which is further than the deck is
+drawn. Values are shares of one and travel as bytes. Without it, a front cannot
+be watched coming: the sky a player sees is overcast everywhere or nowhere.
+
 The player owns the quality: a cloud setting in their own graphics options
 scales the deck's resolution and draw distance, down to off. The server is
 never told, and a mod must not assume its clouds are being drawn at all.
@@ -1261,6 +1269,43 @@ world made before then is understood if its water seems to have changed pace.
 rather than clamped, everybody told at once. That is the bed that ends the
 night. One clock for the world; a sky that differs for one player is
 `game.set_sky_modifier`.
+
+**Your model can wear a skin: `texture` on `register_model`.** A `.glb` with
+no texture is drawn matte white, which is what every model was, and the reader
+refuses a `.glb` that embeds its image — ship the PNG beside it and name it.
+The model's own UVs are used as they are.
+
+**A canopy shades, if you ask it to: `light_falloff` on `register_block`.**
+Leaves are `cutout` and a cutout block passes light the way glass does, so a
+forest floor under a whole canopy was as bright as a meadow. `light_falloff = 2`
+is two levels lost per block of leaves; three blocks of that put a floor at
+about 6 of 15. It is the same number `register_fluid` takes, and 0 — the
+default — is exactly what blocks always did.
+
+**Water breaks plants, if you say so: `washes_away` on `register_block`.** A
+flood runs straight through a `passable` tuft and stands in the same block, and
+your mod cannot see it happen — `on_fluid_flow` reports the flows that were
+BLOCKED, and nothing blocked that one. Declare `washes_away` on the plant and
+the engine clears the block when fluid enters it. Nothing is dropped; if a
+washed plant should leave seeds, spawn them yourself.
+
+**A floor can be slick: `friction` on `register_block`,** a share of the
+ordinary grip from 0 to 1. Ice at 0.1 is slow to start on and glides several
+blocks after the keys are let go. It is read per sub-node under the centre of
+the feet, it slides mobs as well as players, and the client predicts it, so do
+not build ice by pushing bodies from a tick hook — that is the rubber-banding
+version.
+
+**A player's movement is yours to limit, and flight yours to grant.**
+`game.set_player_abilities(uuid, { fly, speed, sprint, wind_sky })` — a Creative
+world where everybody flies, cold that slows, hunger that stops a sprint, and
+`wind_sky = false` for a world that means its nights (the engine's sky keys
+scrub the client's own clock, which lights a player's night for free). Replaced
+whole each call (a field left out is the default again), `fly` is OR-ed with the
+operator list, and the client predicts with the same numbers so nobody
+rubber-bands. Do not try this with `game.set_entity` on a player's body: the
+body is stepped from the player's own inputs and your write is overwritten the
+next tick.
 
 **Your sea is drawn at the horizon.** A chunk past the detail radius arrives as
 a summary — one material a cell — and until 2026-09-19 a summary held no fluid,
