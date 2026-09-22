@@ -2,9 +2,9 @@
 --
 -- What this mod offers other mods, through `game.export` (engine 482958a).
 --
--- A mod that names `tiamot_weather` in its `depends` or `optional_depends`
--- reads this with `game.exports("tiamot_weather")`, which is nil when weather
--- is not installed or has been disabled. Survival (tiamot_default_life) is
+-- A mod that names `tiamat_weather` in its `depends` or `optional_depends`
+-- reads this with `game.exports("tiamat_weather")`, which is nil when weather
+-- is not installed or has been disabled. Survival (tiamat_default_life) is
 -- the obvious reader: whether it is raining on somebody, and how cold it is.
 --
 --   version = 1
@@ -30,7 +30,7 @@
 -- An engine older than 482958a has no exports; there is nothing to publish
 -- to, and calling a nil field would disable this mod.
 if type(game.export) ~= "function" then
-    game.log("tiamot_weather: this engine has no game.export; nothing is published to other mods")
+    game.log("tiamat_weather: this engine has no game.export; nothing is published to other mods")
     return {}
 end
 
@@ -48,7 +48,7 @@ local function guarded(name, fn)
         end
         if not logged[name] then
             logged[name] = true
-            game.log("tiamot_weather: export `" .. name .. "` failed: " .. tostring(result[2]))
+            game.log("tiamat_weather: export `" .. name .. "` failed: " .. tostring(result[2]))
         end
         return nil
     end

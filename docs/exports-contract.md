@@ -26,11 +26,11 @@ and answer `nil`.
 ---
 
 **Status 2026-09-17:** the Spindle implements version 1 in full
-(`mods/tiamot_default_world/exports.lua`), and Weather reads it. Loading both
+(`mods/tiamat_default_world/exports.lua`), and Weather reads it. Loading both
 in one engine logs `humidity exported, warmth exported, biomes exported; damp
 ground on, puddles on`. Life has not adopted Weather's side yet.
 
-## What the Spindle can export for Weather (`tiamot_default_world`)
+## What the Spindle can export for Weather (`tiamat_default_world`)
 
 Weather already names the Spindle in `optional_depends`, so nothing changes
 on Weather's side. Export any subset, in `init.lua`'s registration window:
@@ -52,7 +52,7 @@ game.export{
 ```
 
 **`add_soil_alias(block, dry)`** is called with
-`("tiamot_weather:damp_dirt", "tiamot_default_world:dirt")`, and the same for
+`("tiamat_weather:damp_dirt", "tiamat_default_world:dirt")`, and the same for
 `damp_packed_dirt` and `damp_sand`. It asks the Spindle to treat `block` as
 `dry` wherever it compares materials: `tdw.soil_under`, the `OWNER` table in
 `whereami.lua`, and the `.soil` checks (plan 5.5 has the list). Resolve the id
@@ -61,7 +61,7 @@ If every call answers `true`, **Weather turns damp ground on**. The alpine's
 random tick registered on `dirt` cannot be extended to a block registered
 later, and that cost is accepted.
 
-**`add_harmless_fluid(fluid)`** is called with `"tiamot_weather:rainwater"`.
+**`add_harmless_fluid(fluid)`** is called with `"tiamat_weather:rainwater"`.
 Since engine 2f9b036 the fluid itself declares `washes = false`, so a mod
 that has moved its plants to the engine's `washes_away` needs no list from
 anybody: rain cannot sweep them.
@@ -71,8 +71,8 @@ rainwater meeting lava as steam. If it answers `true`, **Weather turns
 puddles on**.
 
 **Optional, and new with engine ask W7:** the Spindle may now declare
-`absorbs = { rate = 3, becomes = "tiamot_weather:damp_dirt", fluid =
-"tiamot_weather:rainwater" }` on its dirt and sand. Named, the block drinks
+`absorbs = { rate = 3, becomes = "tiamat_weather:damp_dirt", fluid =
+"tiamat_weather:rainwater" }` on its dirt and sand. Named, the block drinks
 that fluid alone, so it wets in the rain without draining the rivers — the
 thing `absorbs` could not do when the plan was written. That would replace
 Weather's material swap for damp ground with the engine's own. Weather does
@@ -97,12 +97,12 @@ Checked in `tests/native`:
 - with a `climate` that errors, the Spindle is disabled and Weather carries on,
   on its mirror
 
-## What Weather exports (`tiamot_weather`)
+## What Weather exports (`tiamat_weather`)
 
-A mod that adds `tiamot_weather` to its `optional_depends` can read:
+A mod that adds `tiamat_weather` to its `optional_depends` can read:
 
 ```lua
-local wx = game.exports("tiamot_weather")     -- nil if Weather is absent or disabled
+local wx = game.exports("tiamat_weather")     -- nil if Weather is absent or disabled
 if wx then
     wx.version                   -- 1
     wx.climate                   -- "spindle" | "plain"
@@ -122,7 +122,7 @@ answers `nil` and neither mod is disabled. Kinds are `clear`, `cloudy`,
 `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm` and `dust`. Families
 are `dry`, `rain`, `snow`, `ash` and `dust`.
 
-**For Life (`tiamot_default_life`):** `falling_on(player)` is "is this person
+**For Life (`tiamat_default_life`):** `falling_on(player)` is "is this person
 getting wet", and `warmth` or `freezing` is weather's cold. Both fit the
 thermometer and the weather shield. Life would add
-`optional_depends = ["tiamot_weather >=0.1"]`.
+`optional_depends = ["tiamat_weather >=0.1"]`.

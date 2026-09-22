@@ -43,7 +43,7 @@ local function run(list, what, ...)
     for _, fn in ipairs(list) do
         local ok, err = pcall(fn, ...)
         if not ok then
-            game.log("tiamot_weather: " .. what .. " failed: " .. tostring(err))
+            game.log("tiamat_weather: " .. what .. " failed: " .. tostring(err))
             error(err, 0)
         end
     end
@@ -80,7 +80,7 @@ game.register_on_chat(function(event)
     end
     local ok, reply = pcall(command, event.player, args)
     if not ok then
-        game.log("tiamot_weather: the command `" .. event.text .. "` errored: " .. tostring(reply))
+        game.log("tiamat_weather: the command `" .. event.text .. "` errored: " .. tostring(reply))
         return "that did not work; the log says why"
     end
     return type(reply) == "string" and reply or "done"

@@ -1,6 +1,6 @@
 -- SPDX-License-Identifier: MIT
 --
--- Tiamot Weather. This file only decides the load order.
+-- Tiamat Weather. This file only decides the load order.
 --
 -- Every file below is loaded exactly once and hangs what it exports off the
 -- `wx` global, which the sandbox shares between a mod's own files. The
@@ -20,7 +20,7 @@ wx = {}
 local function load(name)
     local ok, result = pcall(require, name)
     if not ok then
-        game.log(string.format("tiamot_weather: %s.lua failed: %s", name, tostring(result)))
+        game.log(string.format("tiamat_weather: %s.lua failed: %s", name, tostring(result)))
         error(result, 0)
     end
     return result
@@ -42,9 +42,9 @@ wx.queue = load("queue")
 wx.ground = load("ground")
 wx.fx = load("fx")
 wx.commands = load("commands")
-load("exports")                  -- what other mods may read: game.exports("tiamot_weather")
+load("exports")                  -- what other mods may read: game.exports("tiamat_weather")
 
 game.register_hud_script("hud.lua")
 
-game.log(string.format("tiamot_weather ready: climate %s, damp ground %s, puddles %s",
+game.log(string.format("tiamat_weather ready: climate %s, damp ground %s, puddles %s",
     wx.climate.name, wx.config.damp_ground and "on" or "off", wx.config.puddles and "on" or "off"))

@@ -1,8 +1,8 @@
-# Tiamot Weather — plan
+# Tiamat Weather — plan
 
-A standalone weather mod for the Tiamot engine, `tiamot_weather`. It is
+A standalone weather mod for the Tiamat engine, `tiamat_weather`. It is
 written against the public Lua API only, and built to sit **beside** the
-Spindle (`tiamot_default_world`) rather than inside it.
+Spindle (`tiamat_default_world`) rather than inside it.
 
 Tags: **[now]** can be built today. **[ask WN]** needs that entry in
 `engine-asks-weather.md`. **[verify]** is behaviour this plan assumes and
@@ -13,7 +13,7 @@ Weather here is **a function the server evaluates at a handful of points**.
 Everything a player sees is presentation sent from those points.
 
 **Amended 2026-09-16** after review, against the Spindle as it is in
-`Tiamot_Default_World` today:
+`Tiamat_Default_World` today:
 
 1. The sampler no longer produces work the queue will throw away (5.2, 5.3).
 2. Snow has a depth cap for every kind of snowfall (5.4).
@@ -36,7 +36,7 @@ tree growth, the paced edit queue and spawn handling. As its own mod, a
 weather crash takes down weather and nothing else.
 
 **No hook conflicts.** [checked] Tick and chat hooks are keyed per mod
-(`hook_key(hook, mod_id)`), so `tiamot_weather` has its own
+(`hook_key(hook, mod_id)`), so `tiamat_weather` has its own
 `register_on_tick` and `register_on_chat`. The Spindle's chat handler already
 returns `nil` for commands it does not own, so `/weather` reaches this mod.
 Random ticks *are* one handler per material across all mods, but this mod only
@@ -63,7 +63,7 @@ licence (MIT suggested, matching `api/`). With the climate behind an adapter
 ## 2. Layout
 
 ```
-tiamot_weather/
+tiamat_weather/
   mod.toml
   init.lua              load order only; hangs everything off the `wx` global
   config.lua            switches and tunables
@@ -86,11 +86,11 @@ global (`wx`). Files stay flat, because subdirectories under `require` are
 untested.
 
 ```toml
-id = "tiamot_weather"
-name = "Tiamot Weather"
+id = "tiamat_weather"
+name = "Tiamat Weather"
 version = "0.1.0"
 depends = ["core >=0.1"]
-optional_depends = ["tiamot_default_world >=0.1, <0.2"]
+optional_depends = ["tiamat_default_world >=0.1, <0.2"]
 description = "Rain, snow, storms and the ground they leave behind."
 license = "MIT"
 ```
@@ -117,12 +117,12 @@ wx.climate = {
     freezing = function(x, y, z) end,       -- boolean
     moisture = function(x, y, z) end,       -- noise units, roughly -0.5..0.5
     override = function(x, y, z) end,       -- nil | "ash" | "dust" | "sea"
-    damp = { ["mod:dry_block"] = "tiamot_weather:damp_x", ... },
+    damp = { ["mod:dry_block"] = "tiamat_weather:damp_x", ... },
 }
 ```
 
 `climate.lua` picks the adapter at load:
-`pcall(game.get_block_id, "tiamot_default_world:dirt")` succeeding means the
+`pcall(game.get_block_id, "tiamat_default_world:dirt")` succeeding means the
 Spindle is here. A `config.climate = "plain"` setting forces the fallback.
 
 ### 3.2 The Spindle adapter  [now]
@@ -133,7 +133,7 @@ A program built with the same name and parameters is therefore the same field,
 bit for bit. From `shape.lua` at Spindle 0.1.0:
 
 ```lua
--- MIRRORS tiamot_default_world 0.1.0 shape.lua: M.humidity()
+-- MIRRORS tiamat_default_world 0.1.0 shape.lua: M.humidity()
 -- HUMIDITY_FREQ = 1/9000, HUMIDITY_OCTAVES = 2, HUMIDITY_STRETCH = { y = 1000 },
 -- NOISE_RANGE = 0.5. Change these only together with the Spindle.
 local HUMIDITY = game.density{
@@ -209,7 +209,7 @@ It is rougher than `tdw.biome_under`, and weather does not need exact biome
 names.
 
 **Damp materials:** `dirt`, `packed_dirt`, `sand`, all prefixed
-`tiamot_default_world:`. (There is no `loam` block. The woodland's "loam"
+`tiamat_default_world:`. (There is no `loam` block. The woodland's "loam"
 is `dirt`.)
 
 **Snow-covered ground:** `snow`, `ice`, `permafrost`, prefixed the same
@@ -233,7 +233,7 @@ that ignore biomes, which is honest for a world the mod knows nothing about.
   example `oak_log`/`birch_log` (woodlands, wet) against `packed_dirt`
   (grasslands, dry). Both halves lie on `dirt`, so the soil alone says nothing. If more
   than a few points land on the wrong side of `HUMIDITY_SPLIT = -0.05`, log
-  `"tiamot_weather: the Spindle's humidity no longer matches the mirror"`. This
+  `"tiamat_weather: the Spindle's humidity no longer matches the mirror"`. This
   needs loaded chunks, so run it once a player has joined, and skip unloaded
   points.
 - **Ask W9** replaces the mirror with a real read of the Spindle's field.
@@ -433,7 +433,7 @@ fixed budget, and it is the right one.
 
 ### 5.4 Snow layers  [now]
 
-A new block, `tiamot_weather:snow_layer` ("Fresh snow"). It has hardness 0.1
+A new block, `tiamat_weather:snow_layer` ("Fresh snow"). It has hardness 0.1
 and `drops` of its own material in units, so digging conserves. It grows in
 whole sub-node layers. The occupancy index is `x + 3y + 9z`, so a layer is not
 a run of low bits:
@@ -457,7 +457,7 @@ Where it is SNOW or BLIZZARD and `climate.freezing` holds at the surface:
   `snow_layer` was a whole block with air above, so the next pass started a
   new layer on top of it.
 - **Snow stays this mod's material.** A full `snow_layer` never becomes
-  `tiamot_default_world:snow`. The Spindle's snow has two random-tick owners,
+  `tiamat_default_world:snow`. The Spindle's snow has two random-tick owners,
   the Frozen Wastes' drift rule and the Alpine Highlands' surface rule. Both
   do nothing outside their own province, and neither ever melts snow. A drift
   converted anywhere else would have been permanent in a warm ring. This
@@ -479,16 +479,16 @@ Where it is SNOW or BLIZZARD and `climate.freezing` holds at the surface:
 
 | Dry | Damp | Drops |
 |---|---|---|
-| `tiamot_default_world:dirt` | `tiamot_weather:damp_dirt` | the dry block |
-| `tiamot_default_world:packed_dirt` | `tiamot_weather:damp_packed_dirt` | the dry block |
-| `tiamot_default_world:sand` | `tiamot_weather:damp_sand` | the dry block |
+| `tiamat_default_world:dirt` | `tiamat_weather:damp_dirt` | the dry block |
+| `tiamat_default_world:packed_dirt` | `tiamat_weather:damp_packed_dirt` | the dry block |
+| `tiamat_default_world:sand` | `tiamat_weather:damp_sand` | the dry block |
 
 The damp blocks copy their dry block's hardness and tint by hand and use
 darker textures. Only whole single-material blocks are swapped.
 
 **What a swap hides from the Spindle.** A damp block is a different material,
 so every Spindle rule that asks "is this dirt?" says no while the ground is
-wet. As of `Tiamot_Default_World` today, the rules are:
+wet. As of `Tiamat_Default_World` today, the rules are:
 
 | Spindle rule | Reads | While damp |
 |---|---|---|
@@ -642,7 +642,7 @@ text follows, as what those functions must do inside the Spindle.
 This is the only Spindle-side work, and weather runs without it:
 
 1. **A damp-to-dry table, resolved lazily.** The Spindle cannot look the
-   damp ids up at load: it loads *before* `tiamot_weather`, so the ids do not
+   damp ids up at load: it loads *before* `tiamat_weather`, so the ids do not
    exist yet. Resolve them on first use, when the registries are frozen and
    complete, into one table that every rule in the 5.5 list reads through:
 
@@ -654,7 +654,7 @@ This is the only Spindle-side work, and weather runs without it:
        if DRY == nil then
            DRY = {}
            for damp, dry in pairs(DAMP) do
-               local ok, id = pcall(game.get_block_id, "tiamot_weather:" .. damp)
+               local ok, id = pcall(game.get_block_id, "tiamat_weather:" .. damp)
                if ok then DRY[id] = tdw.blocks[dry] end
            end
        end
@@ -668,7 +668,7 @@ This is the only Spindle-side work, and weather runs without it:
    `damp_dirt`, because registration closes before the id exists. That is
    the accepted cost in 5.5.
 2. **A note in `shape.lua`** beside `M.humidity()`: *mirrored by
-   tiamot_weather; bump the minor version if this changes.* This gives the
+   tiamat_weather; bump the minor version if this changes.* This gives the
    version pin in section 2 something to catch.
 3. **The leaves rule checks which fluid it is.** `rules.lua`'s
    `register_on_fluid_flow` removes a leaf block whenever *any* fluid presses
@@ -700,11 +700,11 @@ This is the only Spindle-side work, and weather runs without it:
 - Digging a two-layer `snow_layer` yields exactly 18 units.
 - An hour of SNOW over one square leaves no `snow_layer` deeper than two
   layers, and an hour of BLIZZARD none deeper than one block. No
-  `tiamot_default_world:snow` is written by this mod, ever.
+  `tiamat_default_world:snow` is written by this mod, ever.
 - With one player, the sampler's discarded-scan count is zero: every
   scanned column reaches the queue.
 - A mid-storm restart resumes the same kind within one evaluation.
-- Removing `tiamot_weather` from a world leaves `snow_layer` and damp blocks
+- Removing `tiamat_weather` from a world leaves `snow_layer` and damp blocks
   as unknown materials, which the engine lists rather than errors on. Decide
   before release whether a "clear all weather blocks" command is owed to
   players who uninstall.
@@ -799,7 +799,7 @@ Three engine commits landed after the build. None of them is a weather ask.
   W1–W9.
 - **b03fa42, terraced fluid levels.** Worldgen only; nothing here reads it.
 
-The mod had been moved into `Tiamot/game/` as a plain folder. It is back in
+The mod had been moved into `Tiamat/game/` as a plain folder. It is back in
 this repository, with a junction in `game/`, as the Spindle and Life are.
 
 ### 10.2 After the exports update (2026-09-17)
@@ -906,7 +906,7 @@ sky rather than as cloud, which wants flat bottoms and bulbous tops.
   shader (`docs/reference/cloud-prototype-2026-09-18.patch`) draws round
   heaps over flat bases with a fake subsurface glow, pictured beside the
   current deck in `docs/reference/cloud-prototype-2026-09-18.png`. It is
-  filed as ask W12 in the engine repo's `docs/engine-asks/tiamot_weather.md`.
+  filed as ask W12 in the engine repo's `docs/engine-asks/tiamat_weather.md`.
 
 ### 10.7 Heaps (2026-09-19)
 
@@ -1027,4 +1027,21 @@ blizzard stratocumulus under cumulonimbus; a mega storm cumulonimbus 1.
   1920 x 1080: the self-shadow culled with distance, candidate cells rejected
   before they are hashed, a coarser pixel target and a half-resolution Normal
   (`cloud-optimised-2026-09-22.png`, `cloud-fog-shape-prototype-2026-09-22.patch`).
+
+### 10.13 Tiamat (2026-09-22)
+
+The engine is renaming from Tiamot to Tiamat, everything with it, and this
+mod follows. The mod id is `tiamat_weather`, its directory `mods/tiamat_weather`,
+and every block, fluid, setting and storage key it owns is namespaced under
+the new id. **A world made under the old id does not carry over**: its
+`tiamot_weather:snow_layer` and damp blocks are unknown materials to this
+mod, and its saved clock is not read, so the front starts again. Nothing is
+lost that was not weather.
+
+The mods do not all rename on the same day, so the Spindle is asked for
+under both names: `climate.lua` probes `tiamat_default_world` and then
+`tiamot_default_world`, `mod.toml` lists both in `optional_depends`, and
+everything the adapter names — its blocks, its lava, the damp pairs — is
+built from whichever answered. The native check runs the whole suite under
+the new id and the Spindle's old one.
 

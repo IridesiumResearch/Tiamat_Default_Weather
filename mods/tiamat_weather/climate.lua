@@ -19,13 +19,27 @@
 
 local config = wx.config
 
-local function spindle_present()
-    local ok, id = pcall(game.get_block_id, "tiamot_default_world:dirt")
-    return ok and id ~= nil
+-- **The Spindle's id, either side of the rename** (2026-09-22). The engine
+-- and its mods are moving from Tiamot to Tiamat, and they do not all move on
+-- the same day. Whichever of the two is installed is the one asked; both are
+-- in `optional_depends`, so either may be a dependency of ours.
+local SPINDLE_IDS = { "tiamat_default_world", "tiamot_default_world" }
+
+local function spindle_id()
+    for _, id in ipairs(SPINDLE_IDS) do
+        local ok, block = pcall(game.get_block_id, id .. ":dirt")
+        if ok and block ~= nil then
+            return id
+        end
+    end
+    return nil
 end
 
+-- The id the Spindle is installed under, or nil. Read by climate_spindle.
+wx.spindle_id = spindle_id()
+
 local adapter
-if config.climate ~= "plain" and spindle_present() then
+if config.climate ~= "plain" and wx.spindle_id ~= nil then
     adapter = require("climate_spindle")
 else
     adapter = require("climate_plain")
@@ -46,7 +60,7 @@ end
 config.damp_ground = resolve(config.damp_ground, adapter.unlock_damp)
 config.puddles = resolve(config.puddles, adapter.unlock_puddles)
 if adapter.sources then
-    game.log(string.format("tiamot_weather: humidity %s, warmth %s, biomes %s; damp ground %s, puddles %s",
+    game.log(string.format("tiamat_weather: humidity %s, warmth %s, biomes %s; damp ground %s, puddles %s",
         adapter.sources.humidity, adapter.sources.warmth, adapter.sources.biome,
         config.damp_ground and "on" or "off", config.puddles and "on" or "off"))
 end

@@ -8,7 +8,7 @@
 return {
     -- ---------------------------------------------------------- switches
 
-    -- "auto" picks the Spindle adapter when tiamot_default_world is loaded
+    -- "auto" picks the Spindle adapter when tiamat_default_world is loaded
     -- and the plain one otherwise; "plain" forces the plain one.
     climate = "auto",
     -- Damp ground (plan 5.5). "auto" is on exactly when the Spindle exports

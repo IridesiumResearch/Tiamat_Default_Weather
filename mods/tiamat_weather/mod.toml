@@ -1,0 +1,17 @@
+# Tiamat Weather — rain, snow, storms and the ground they leave behind.
+#
+# A standalone mod that sits beside the Spindle (tiamat_default_world) rather
+# than inside it. See ../../docs/weather-plan.md for the design and the numbers.
+#
+# The Spindle is an OPTIONAL dependency, pinned below 0.2: its humidity field
+# is mirrored in climate_spindle.lua, and a Spindle that has moved on is
+# refused here rather than silently disagreed with.
+id = "tiamat_weather"
+name = "Tiamat Weather"
+version = "0.1.0"
+depends = ["core >=0.1"]
+# Both names, while the engine and its mods move from Tiamot to Tiamat and do
+# not all move on the same day. Neither has to be installed.
+optional_depends = ["tiamat_default_world >=0.1, <0.2", "tiamot_default_world >=0.1, <0.2"]
+description = "Rain, snow, storms and the ground they leave behind."
+license = "MIT"

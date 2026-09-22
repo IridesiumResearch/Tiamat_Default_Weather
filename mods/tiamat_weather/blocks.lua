@@ -4,7 +4,7 @@
 -- dirt and sand.
 --
 -- **Fresh snow is its own material, never the Spindle's snow.** A layer
--- that became `tiamot_default_world:snow` would belong to rules that only
+-- that became `tiamat_default_world:snow` would belong to rules that only
 -- act inside the Crown and the frost ring and never melt anything, so a
 -- drift left in a warm ring would be there for good (plan 5.4).
 --
@@ -14,7 +14,7 @@
 
 local M = {}
 
-M.SNOW = "tiamot_weather:snow_layer"
+M.SNOW = "tiamat_weather:snow_layer"
 
 -- The mask of the bottom `n` layers, n = 0..3.
 local function layers_mask(n)
@@ -61,7 +61,7 @@ M.snow_id = game.get_block_id(M.SNOW)
 -- reported through `register_on_fluid_flow` with `meets` naming it. So
 -- rainwater running into a river neither merges nor displaces it; ground.lua
 -- hears the meeting and lets the rainwater go.
-M.RAINWATER = "tiamot_weather:rainwater"
+M.RAINWATER = "tiamat_weather:rainwater"
 game.register_block{
     id = "rainwater",
     name = "Rainwater",
@@ -106,7 +106,7 @@ if wx.climate.name == "spindle" then
             textures = { all = "textures/" .. spec.id .. ".png" },
             tint = SOIL,
         }
-        M.damp_ids[#M.damp_ids + 1] = "tiamot_weather:" .. spec.id
+        M.damp_ids[#M.damp_ids + 1] = "tiamat_weather:" .. spec.id
     end
 end
 

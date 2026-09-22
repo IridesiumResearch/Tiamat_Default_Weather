@@ -211,7 +211,7 @@ function M.report_drift(pos)
             line = string.format("the mirror matches the Spindle's exported fields at all %d points (%s)",
                 agreed, worst)
         end
-        game.log("tiamot_weather: drift check: " .. line)
+        game.log("tiamat_weather: drift check: " .. line)
         return line
     end
     local agreed, disagreed, judged = climate.drift_check(pos.x, pos.y, pos.z)
@@ -224,7 +224,7 @@ function M.report_drift(pos)
     else
         line = string.format("the mirror matches the ground: %d of %d points agree", agreed, judged)
     end
-    game.log("tiamot_weather: drift check: " .. line)
+    game.log("tiamat_weather: drift check: " .. line)
     return line
 end
 
@@ -255,7 +255,7 @@ local function stats()
     add("ground", wx.ground.stats)
     add("queue", wx.queue.stats)
     add("fx", wx.fx.stats)
-    game.log("tiamot_weather stats: " .. table.concat(parts, " ") .. " waiting=" .. wx.queue.waiting())
+    game.log("tiamat_weather stats: " .. table.concat(parts, " ") .. " waiting=" .. wx.queue.waiting())
     return "the weather's figures are in the server log"
 end
 

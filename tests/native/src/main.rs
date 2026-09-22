@@ -18,7 +18,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use tiamot_core::{
+use tiamat_core::{
     BlockPos, MaterialId,
     atmosphere::{self, CloudMap, Clouds, FlashRequest, Precipitation, SkyModifier},
     ent::{self, Entity, EntityId, Owner, Transform},
@@ -36,7 +36,7 @@ use tiamot_core::{
     storage::{self, Access as _},
 };
 
-const MOD: &str = "tiamot_weather";
+const MOD: &str = "tiamat_weather";
 const ALICE: [u8; 32] = [7; 32];
 const BOB: [u8; 32] = [9; 32];
 const SEED: u64 = 20_260_916;
@@ -339,7 +339,7 @@ impl fluid::Access for World {
         }
     }
     fn fluid_id(&self, name: &str) -> Option<FluidId> {
-        Some(FluidId(if name == "tiamot_weather:rainwater" { RAIN_ID } else { WATER_ID }))
+        Some(FluidId(if name == "tiamat_weather:rainwater" { RAIN_ID } else { WATER_ID }))
     }
 }
 
@@ -405,6 +405,11 @@ impl Rig {
     /// The whole rig: a Spindle stand-in's source (or none), and mods loaded
     /// AFTER weather as `(id, source, depends)`, for reading its exports.
     fn custom(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
+        Self::named(spindle, "tiamat_default_world", storage, prelude, after)
+    }
+    /// The same, with the Spindle under a given id: it is renaming from
+    /// Tiamot to Tiamat and weather has to work either side of that.
+    fn named(spindle: Option<&str>, spindle_id: &str, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mods").join(MOD);
         let mut vm = EngineVm::create(VmLimits::default()).unwrap();
         let entities = Entities(Arc::new(Mutex::new(HashMap::new())));
@@ -424,10 +429,10 @@ impl Rig {
         vm.set_light_source(world.clone());
         vm.set_world_edit(world.clone());
         if let Some(source) = spindle {
-            vm.load_mod("tiamot_default_world", source, &dir).unwrap();
+            vm.load_mod(spindle_id, source, &dir).unwrap();
             // What the resolver tells the VM from mod.toml's optional_depends:
             // it is what lets weather read the Spindle's exports.
-            vm.note_dependencies(MOD, &["tiamot_default_world".to_owned()]);
+            vm.note_dependencies(MOD, &[spindle_id.to_owned()]);
         } else {
             vm.load_mod("core", "game.register_block{ id = 'white' }", &dir).unwrap();
         }
@@ -532,6 +537,7 @@ fn main() {
     queue_check();
     puddle_check();
     exports_check();
+    old_spindle_check();
     mega_check();
     plain_check();
     hud_check();
@@ -542,14 +548,14 @@ fn main() {
 // t = 0.5, and the same both sides of it.
 fn climate_check() {
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    r.stand(ALICE, 100.0, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, 100.0, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, 100.0, dome_y(100.0, 0.0) + 1.0, 0.0);
     r.tick(1);
     assert!(r.reply(ALICE, "/weather").contains("climate spindle"));
 
     let warmth = |r: &mut Rig, t: f64| {
         let x = t * 59000.0;
-        r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+        r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
         let reply = r.reply(ALICE, "/weather");
         number_after(&reply, "warmth ")
     };
@@ -572,7 +578,7 @@ fn climate_check() {
 fn weather_check(storage: Arc<Storage>) -> String {
     let mut r = Rig::new(true, storage);
     let x = 0.5 * 59000.0;
-    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
     r.tick(41);
 
@@ -635,7 +641,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // Rain is too gentle to sweep a plant away (engine 2f9b036, ask W14):
     // a puddle creeping into the grass beside it must not strip a meadow.
     let rainwater = r.vm.registered_fluids().into_iter()
-        .find(|f| f.fluid == "tiamot_weather:rainwater").expect("rainwater is registered");
+        .find(|f| f.fluid == "tiamat_weather:rainwater").expect("rainwater is registered");
     assert!(!rainwater.washes, "rain does not wash plants away");
     println!("ok  rainwater is declared too gentle to sweep a plant away");
 
@@ -709,14 +715,14 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // alone reads like a cave mouth, but a canopy overhead is outdoors.
     let crown_y = dome_y(x, 100.0) as i32 + 12;
     r.world.canopies.lock().unwrap().push(head);
-    let leaves = r.material("tiamot_default_world:oak_leaves");
+    let leaves = r.material("tiamat_default_world:oak_leaves");
     r.world.put(head.0, crown_y, head.1, leaves, ONE_LAYER);
     r.tick(41);
     let forest = r.sky_of(ALICE).expect("the storm's sky under the trees");
     assert!(forest.fog_distance < 0.4, "the fog is not halved under leaves: {forest:?}");
     assert!(r.rain_of(ALICE).is_some(), "and it rains");
     // Rock in the same place is an overhang, and the storm fades by the sun.
-    let rock = r.material("tiamot_default_world:stone");
+    let rock = r.material("tiamat_default_world:stone");
     r.world.put(head.0, crown_y, head.1, rock, ONE_LAYER);
     r.tick(41);
     let overhang = r.sky_of(ALICE).expect("some of the storm's sky under an overhang");
@@ -753,13 +759,13 @@ fn weather_check(storage: Arc<Storage>) -> String {
 
     // The floor follows the dome: at the rim it is kilometres lower than at the axis.
     let rim = 0.9 * 59000.0;
-    r.stand(ALICE, rim, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, rim, 0.0, "tiamat_default_world:dirt");
     r.tick(41);
     let low = r.clouds_of(ALICE).unwrap().base.unwrap();
     let want = ((dome_y(rim, 0.0) + 400.0) / 64.0).floor() * 64.0;
     assert_eq!(f64::from(low), want, "the floor over the rim");
     assert!(floor - low > 1000.0, "the dome falls about 1.3 km from t=.5 to t=.9: {floor} to {low}");
-    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
     r.tick(41);
     println!("ok  the cloud floor follows the dome: y {floor} at t=.5, y {low} at the rim");
 
@@ -782,7 +788,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
 fn restart_check(storage: Arc<Storage>, front_before: &str) {
     let mut r = Rig::new(true, storage.clone());
     let x = 0.5 * 59000.0;
-    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
     r.tick(1);
     let reply = r.reply(ALICE, "/weather");
@@ -799,15 +805,15 @@ fn restart_check(storage: Arc<Storage>, front_before: &str) {
 fn snow_check() {
     let mut r = Rig::new(true, Arc::new(Storage::default()));
     let (x, z) = (1500.0, 800.0);
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     r.join(ALICE, x, f64::from(top + 1), z);
     r.tick(1);
     let reply = r.reply(ALICE, "/weather");
     assert!(reply.contains("(freezing)"), "the Crown freezes: {reply}");
 
     // Some grass tufts, and one column already the Spindle's snow.
-    let grass = r.material("tiamot_default_world:grass");
-    let snow = r.material("tiamot_default_world:snow");
+    let grass = r.material("tiamat_default_world:grass");
+    let snow = r.material("tiamat_default_world:snow");
     for dx in -40..=40 {
         r.world.put(x as i32 + dx, top + 1, z as i32 + 3, grass, 1 << 4);
     }
@@ -818,7 +824,7 @@ fn snow_check() {
     let edits = r.edits_since(0);
     assert!(!edits.is_empty(), "six minutes of blizzard laid snow");
     for (_, pos, block, occ) in &edits {
-        assert_eq!(block, "tiamot_weather:snow_layer", "only this mod's snow is written");
+        assert_eq!(block, "tiamat_weather:snow_layer", "only this mod's snow is written");
         assert!(pos.y == top + 1, "snow only ever sits directly on the ground, never on snow: y {}", pos.y);
         assert!([ONE_LAYER, TWO_LAYERS, FULL].contains(occ), "a stack of whole layers: {occ:#x}");
         assert!(!(pos.z == z as i32 + 3 && (pos.x - x as i32).abs() <= 40), "grass tufts are not supports");
@@ -840,7 +846,7 @@ fn snow_check() {
 
     // SNOW caps at two layers: over a fresh floor, nothing reaches a full block.
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     r.join(ALICE, x, f64::from(top + 1), z);
     r.tick(1);
     r.say(ALICE, "/weather set snow 60");
@@ -858,9 +864,9 @@ fn thaw_check() {
     let mut r = Rig::new(true, Arc::new(Storage::default()));
     let x = 0.5 * 59000.0;
     let z = 50.0;
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     r.join(ALICE, x, f64::from(top + 1), z);
-    let snow = r.material("tiamot_weather:snow_layer");
+    let snow = r.material("tiamat_weather:snow_layer");
     for dx in -40..=40 {
         for dz in -40..=40 {
             r.world.put(x as i32 + dx, top + 1, z as i32 + dz, snow, TWO_LAYERS);
@@ -895,7 +901,7 @@ fn thaw_check() {
 fn queue_check() {
     let mut r = Rig::new(true, Arc::new(Storage::default()));
     let (x, z) = (1500.0, 800.0);
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     r.join(ALICE, x, f64::from(top + 1), z);
     r.tick(1);
     r.say(ALICE, "/weather set blizzard 60");
@@ -914,7 +920,7 @@ fn queue_check() {
 
     // Roofed columns get nothing: every column under a roof.
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     for dx in -60..=60 {
         for dz in -60..=60 {
             r.world.roofs.lock().unwrap().push((x as i32 + dx, z as i32 + dz));
@@ -934,7 +940,7 @@ fn queue_check() {
 fn puddle_check() {
     let (x, z) = (0.5 * 59000.0, 60.0);
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     r.join(ALICE, x, f64::from(top + 1), z);
     r.tick(1);
     r.say(ALICE, "/weather set storm 30");
@@ -942,9 +948,9 @@ fn puddle_check() {
     assert!(r.world.fluid_writes.lock().unwrap().is_empty(), "puddles are off by default");
 
     let mut r = Rig::with(true, Arc::new(Storage::default()), "wx_overrides = { puddles = true }");
-    let top = r.stand(ALICE, x, z, "tiamot_default_world:dirt");
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
     // A band of logs: a whole block, but not ground, so never a puddle.
-    let logs = r.material("tiamot_default_world:oak_log");
+    let logs = r.material("tiamat_default_world:oak_log");
     for dx in -40..=40 {
         r.world.put(x as i32 + dx, top, z as i32 + 5, logs, FULL);
     }
@@ -977,21 +983,21 @@ fn puddle_check() {
     let flow = |fluid: &str, meets: &str, from: BlockPos, into: BlockPos| FluidFlowEvent {
         from, into, fluid: fluid.into(), volume: 3, blocked_by: MaterialId(0), occupancy: 0, meets: Some(meets.into()),
     };
-    r.vm.fluid_flow(&flow("tiamot_weather:rainwater", "tiamot_default_world:water", from, into));
+    r.vm.fluid_flow(&flow("tiamat_weather:rainwater", "tiamat_default_world:water", from, into));
     assert!(r.vm.faulted_mods().is_empty());
     assert!(!r.world.fluids.lock().unwrap().contains_key(&(10, top + 1, 10)), "rainwater ran into the river");
     assert_eq!(r.particles.bursts.lock().unwrap().len(), before, "no steam from water");
 
     // Lava running into a puddle: the puddle goes, as steam.
     r.world.fluids.lock().unwrap().insert((11, top + 1, 10), (RAIN_ID, 3));
-    r.vm.fluid_flow(&flow("tiamot_default_world:lava", "tiamot_weather:rainwater", from, into));
+    r.vm.fluid_flow(&flow("tiamat_default_world:lava", "tiamat_weather:rainwater", from, into));
     assert!(!r.world.fluids.lock().unwrap().contains_key(&(11, top + 1, 10)), "the puddle boiled off");
     assert_eq!(r.particles.bursts.lock().unwrap().len(), before + 1, "steam");
 
     // Water meeting water, or terrain, is none of this mod's business.
     let writes_before = r.world.fluid_writes.lock().unwrap().len();
-    r.vm.fluid_flow(&flow("tiamot_default_world:water", "tiamot_default_world:brine", from, into));
-    r.vm.fluid_flow(&FluidFlowEvent { meets: None, ..flow("tiamot_weather:rainwater", "", from, into) });
+    r.vm.fluid_flow(&flow("tiamat_default_world:water", "tiamat_default_world:brine", from, into));
+    r.vm.fluid_flow(&FluidFlowEvent { meets: None, ..flow("tiamat_weather:rainwater", "", from, into) });
     assert_eq!(r.world.fluid_writes.lock().unwrap().len(), writes_before, "other meetings untouched");
     println!("ok  rainwater let go into water, boiled off by lava, other meetings left alone");
 }
@@ -1020,7 +1026,7 @@ fn exports_check() {
         end)
     "#);
     let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(41);
     let reply = r.reply(ALICE, "/weather");
@@ -1028,9 +1034,9 @@ fn exports_check() {
     assert!(reply.contains("moisture 0.3"), "the exported humidity is read: {reply}");
     assert!((number_after(&reply, "warmth ") - 500.0).abs() <= 2.0, "the exported climate (0.5), less a block of lapse: {reply}");
     assert!(reply.contains("damp ground on, puddles on"), "both unlocked: {reply}");
-    assert!(r.materials.contains_key("tiamot_weather:damp_dirt"));
+    assert!(r.materials.contains_key("tiamat_weather:damp_dirt"));
     let told = r.reply(ALICE, "/spindle");
-    assert_eq!(told, "tiamot_weather:damp_dirt=tiamot_default_world:dirt,tiamot_weather:damp_packed_dirt=tiamot_default_world:packed_dirt,tiamot_weather:damp_sand=tiamot_default_world:sand;tiamot_weather:rainwater");
+    assert_eq!(told, "tiamat_weather:damp_dirt=tiamat_default_world:dirt,tiamat_weather:damp_packed_dirt=tiamat_default_world:packed_dirt,tiamat_weather:damp_sand=tiamat_default_world:sand;tiamat_weather:rainwater");
     println!("ok  Spindle exports read: humidity, climate, biomes; damp ground and puddles unlocked by its answers");
 
     // 2. The Spindle's exported function errors: the SPINDLE is disabled, the
@@ -1039,18 +1045,18 @@ fn exports_check() {
         game.export{ version = 1, climate = function(x, z) error("the ring table is gone") end }
     "#);
     let mut r = Rig::custom(Some(&broken), Arc::new(Storage::default()), "", &[]);
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(41);
     let reply = r.reply(ALICE, "/weather");
-    assert!(r.vm.faulted_mods().iter().any(|m| m == "tiamot_default_world"), "the owner of the failing export is disabled");
+    assert!(r.vm.faulted_mods().iter().any(|m| m == "tiamat_default_world"), "the owner of the failing export is disabled");
     assert!((number_after(&reply, "warmth ") - 750.0).abs() <= 2.0, "weather fell back to its mirrored 4t(1-t): {reply}");
     r.tick(200);
     println!("ok  a faulting Spindle export disabled the Spindle, not weather; the mirror took over");
 
     // 3. No exports at all (the Spindle as it is today): the mirror, both off.
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(1);
     let reply = r.reply(ALICE, "/weather");
@@ -1081,7 +1087,7 @@ fn exports_check() {
         }
     "#);
     let mut r = Rig::custom(Some(&same), Arc::new(Storage::default()), "", &[]);
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(1);
     let drift = r.reply(ALICE, "/weather drift");
@@ -1101,7 +1107,7 @@ fn exports_check() {
         }
     "#);
     let mut r = Rig::custom(Some(&stale), Arc::new(Storage::default()), "", &[]);
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(1);
     let drift = r.reply(ALICE, "/weather drift");
@@ -1110,7 +1116,7 @@ fn exports_check() {
 
     // 5. Weather's own exports, read by a mod that optionally depends on it.
     let probe = r#"
-        local wx = game.exports("tiamot_weather")
+        local wx = game.exports("tiamat_weather")
         game.register_on_chat(function(event)
             if event.text ~= "/probe" then return end
             if wx == nil then return "no exports" end
@@ -1124,15 +1130,15 @@ fn exports_check() {
         end)
     "#;
     let mut r = Rig::custom(Some(SPINDLE_STANDIN), Arc::new(Storage::default()), "",
-        &[("tiamot_default_life", probe, &["tiamot_weather"])]);
-    r.stand(ALICE, x, 0.0, "tiamot_default_world:dirt");
+        &[("tiamat_default_life", probe, &["tiamat_weather"])]);
+    r.stand(ALICE, x, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 0.0) + 1.0, 0.0);
     r.tick(1);
     r.say(ALICE, "/weather set storm 10");
     r.tick(40 * 25);
     let probed = r.reply(ALICE, "/probe");
     assert_eq!(probed, "storm 1000 Storm|rain|nil|false|nil|rain|spindle", "{probed}");
-    assert!(!r.vm.faulted_mods().iter().any(|m| m == "tiamot_default_life"), "bad arguments cost the caller nothing");
+    assert!(!r.vm.faulted_mods().iter().any(|m| m == "tiamat_default_life"), "bad arguments cost the caller nothing");
     println!("ok  weather's exports: `{probed}` (bad arguments answer nil, writes are refused, nothing faulted)");
 }
 
@@ -1141,7 +1147,7 @@ fn exports_check() {
 fn mega_check() {
     let x = 0.5 * 59000.0;
     let mut r = Rig::new(true, Arc::new(Storage::default()));
-    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
     r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
     r.tick(41);
 
@@ -1178,7 +1184,7 @@ fn mega_check() {
 
     // In the cold it is a mega blizzard, with thundersnow.
     let rim = 0.99 * 59000.0;
-    r.stand(ALICE, rim, 0.0, "tiamot_default_world:dirt");
+    r.stand(ALICE, rim, 0.0, "tiamat_default_world:dirt");
     r.tick(41);
     r.say(ALICE, "/weather set mega 10");
     r.tick(40 * 25);
@@ -1193,7 +1199,7 @@ fn mega_check() {
     for i in 0..places {
         let px = f64::from((i * 7919) % 50000 + 4000);
         let pz = f64::from((i * 104_729) % 40000 - 20000);
-        r.stand(ALICE, px, pz, "tiamot_default_world:dirt");
+        r.stand(ALICE, px, pz, "tiamat_default_world:dirt");
         let said = r.reply(ALICE, "/weather mega 10");
         let head = said.split(" mega storms pass").next().unwrap_or_default();
         any += head.rsplit(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse::<f64>().ok())
@@ -1209,10 +1215,27 @@ fn mega_check() {
     println!("ok  mega storms: {per_year:.2} a year at a place, {strong_per_year:.2} strong; `{said}`");
 }
 
+// The Spindle under its OLD id, while it is still on the Tiamot name: the
+// adapter finds it, mirrors it, and its blocks are read under that id.
+fn old_spindle_check() {
+    let mut r = Rig::named(Some(SPINDLE_STANDIN), "tiamot_default_world", Arc::new(Storage::default()), "", &[]);
+    let x = 0.5 * 59000.0;
+    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
+    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
+    r.tick(41);
+    let reply = r.reply(ALICE, "/weather");
+    assert!(reply.contains("climate spindle"), "the old id is still the Spindle: {reply}");
+    assert!(reply.contains("humidity mirrored"), "and the mirror stands in for it: {reply}");
+    r.say(ALICE, "/weather set snow 5");
+    r.tick(40 * 25);
+    assert_eq!(r.hud(ALICE), "Snow");
+    println!("ok  the Spindle under its old id: `{reply}`");
+}
+
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.
 fn plain_check() {
     let mut r = Rig::new(false, Arc::new(Storage::default()));
-    assert!(!r.materials.contains_key("tiamot_weather:damp_dirt"));
+    assert!(!r.materials.contains_key("tiamat_weather:damp_dirt"));
     *r.world.floor.lock().unwrap() = (63, r.material("core:white"));
     r.join(ALICE, 10.0, 64.0, 10.0);
     r.tick(41);

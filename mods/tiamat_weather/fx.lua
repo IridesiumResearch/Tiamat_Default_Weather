@@ -102,7 +102,7 @@ game.register_setting{
     options = { "off", "low", "full" },
     default = 2,
 }
-local SETTING = "tiamot_weather:particles"
+local SETTING = "tiamat_weather:particles"
 local SHARE = { off = 0, low = 1, full = 2 }
 
 M.stats = { precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0 }
@@ -465,7 +465,7 @@ local function clouds_for(uuid, where, square, was)
             error(err, 0)
         end
         HAS_MAP = false
-        game.log("tiamot_weather: this engine takes no cloud map, so storms are not seen at a distance: " .. tostring(err))
+        game.log("tiamat_weather: this engine takes no cloud map, so storms are not seen at a distance: " .. tostring(err))
         spec.map = nil
         game.set_clouds(uuid, spec)
     end

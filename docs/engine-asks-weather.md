@@ -1,7 +1,7 @@
 # Engine asks from weather (2026-09-16)
 
-> **New asks are filed in the engine repo, `docs/engine-asks/tiamot_weather.md`**
-> (`../Tiamot/docs/engine-asks/` from here), where the engine agent reads
+> **New asks are filed in the engine repo, `docs/engine-asks/tiamat_weather.md`**
+> (`../Tiamat/docs/engine-asks/` from here), where the engine agent reads
 > every mod's asks. This file is the history of W1–W9. The two items
 > deferred from W2, the cover map and cloud shadows, are open there as W10
 > and W11. W12 (the deck's cost at the horizon, and heaps with flat bases,
@@ -11,7 +11,7 @@
 > that does not wash plants away, was filed 2026-09-22.
 
 These asks come out of the weather plan (`weather-plan.md`) for the
-standalone `tiamot_weather` mod. **They are numbered W1–W9**, not in the
+standalone `tiamat_weather` mod. **They are numbered W1–W9**, not in the
 Spindle's `docs/engine-asks.md` sequence. They were first numbered 33–41 to
 follow that file, and then the Spindle filed its own ask 33 (a chunk tint that
 could not brighten, fixed in engine f219d6d). An engine commit citing "ask 33"
@@ -346,7 +346,7 @@ and swaps materials by hand instead.
 The smallest change is an optional **`fluid`** on `absorbs`:
 
 ```lua
-absorbs = { rate = 3, becomes = "damp_dirt", fluid = "tiamot_default_world:rainwater" }
+absorbs = { rate = 3, becomes = "damp_dirt", fluid = "tiamat_default_world:rainwater" }
 ```
 
 If it is omitted, the block absorbs any fluid, as today.
@@ -434,15 +434,15 @@ The smallest change is **a read-only export table per mod**, set during
 registration and readable by mods that list the exporter as a dependency:
 
 ```lua
--- in tiamot_default_world, during init.lua
+-- in tiamat_default_world, during init.lua
 game.export{
-    humidity = M.humidity_program,          -- a compiled Tiamot.Density handle
+    humidity = M.humidity_program,          -- a compiled Tiamat.Density handle
     biome_under = tdw.biome_under,          -- a function
     version = 1,
 }
 
--- in tiamot_weather, which lists it in depends or optional_depends
-local spindle = game.exports("tiamot_default_world")   -- nil if absent or not a dependency
+-- in tiamat_weather, which lists it in depends or optional_depends
+local spindle = game.exports("tiamat_default_world")   -- nil if absent or not a dependency
 if spindle then
     local wet = spindle.humidity:at(x, 0, z, game.world_seed)
 end

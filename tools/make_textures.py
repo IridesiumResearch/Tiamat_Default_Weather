@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Generates the textures for mods/tiamot_weather/textures.
+"""Generates the textures for mods/tiamat_weather/textures.
 
 One flat colour per block, the Spindle's convention: variation across a
 surface is the renderer's (the block's tint), never baked into the picture.
@@ -14,7 +14,7 @@ import zlib
 from pathlib import Path
 
 SIZE = 16
-OUT = Path(__file__).resolve().parent.parent / "mods" / "tiamot_weather" / "textures"
+OUT = Path(__file__).resolve().parent.parent / "mods" / "tiamat_weather" / "textures"
 
 # The Spindle's dry colours (tools/make_textures.py there), and how much of
 # each channel is kept when it is wet.

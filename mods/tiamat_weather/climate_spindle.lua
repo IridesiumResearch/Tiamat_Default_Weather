@@ -32,17 +32,27 @@ local config = wx.config
 
 local M = { name = "spindle", hud_row = config.HUD_ROW_SPINDLE }
 
+-- The id the Spindle is installed under: `tiamat_default_world`, or
+-- `tiamot_default_world` while it is still on the old name (climate.lua).
+local SPINDLE = wx.spindle_id or "tiamat_default_world"
+M.spindle_id = SPINDLE
+
+-- One of its blocks, by name.
+local function theirs(name)
+    return SPINDLE .. ":" .. name
+end
+
 -- **An engine older than 482958a has no exports at all**, and calling a nil
 -- field would disable this whole mod. On such an engine the mirror is the
 -- only climate there is, which is what this mod was written against.
 local EX = nil
 if type(game.exports) == "function" then
-    EX = game.exports("tiamot_default_world")
+    EX = game.exports(SPINDLE)
 else
-    game.log("tiamot_weather: this engine has no game.exports; using the mirrored climate")
+    game.log("tiamat_weather: this engine has no game.exports; using the mirrored climate")
 end
 if EX ~= nil and EX.version ~= 1 then
-    game.log("tiamot_weather: the Spindle exports version " .. tostring(EX.version)
+    game.log("tiamat_weather: the Spindle exports version " .. tostring(EX.version)
         .. ", not 1; using the mirrored climate")
     EX = nil
 end
@@ -79,7 +89,7 @@ M.sources = {
 
 -- ------------------------------------------------------------ moisture
 
--- MIRRORS tiamot_default_world 0.1.0 shape.lua: M.humidity()
+-- MIRRORS tiamat_default_world 0.1.0 shape.lua: M.humidity()
 -- HUMIDITY_FREQ = 1/9000, HUMIDITY_OCTAVES = 2, HUMIDITY_STRETCH = { y = 1000 },
 -- NOISE_RANGE = 0.5, amplitude 1.0. A noise node's stream is hashed from its
 -- NAME alone, so this program is the Spindle's field, bit for bit.
@@ -211,7 +221,7 @@ end
 local function ids(names)
     local set = {}
     for _, name in ipairs(names) do
-        local ok, id = pcall(game.get_block_id, "tiamot_default_world:" .. name)
+        local ok, id = pcall(game.get_block_id, theirs(name))
         if ok and id ~= nil then
             set[id] = true
         end
@@ -240,12 +250,12 @@ M.canopy = ids({ "oak_leaves", "willow_leaves", "ironwood_leaves", "kapok_leaves
 M.puddle_ground = ids({ "dirt", "packed_dirt", "sand", "gravel", "stone", "mud", "dried_mud" })
 
 -- Fluids that boil rain away rather than take it in: a meeting makes steam.
-M.hot_fluids = { ["tiamot_default_world:lava"] = true }
+M.hot_fluids = { [theirs("lava")] = true }
 
 M.damp = {
-    ["tiamot_default_world:dirt"] = "tiamot_weather:damp_dirt",
-    ["tiamot_default_world:packed_dirt"] = "tiamot_weather:damp_packed_dirt",
-    ["tiamot_default_world:sand"] = "tiamot_weather:damp_sand",
+    [theirs("dirt")] = "tiamat_weather:damp_dirt",
+    [theirs("packed_dirt")] = "tiamat_weather:damp_packed_dirt",
+    [theirs("sand")] = "tiamat_weather:damp_sand",
 }
 
 -- ------------------------------------------------------------ switches the Spindle unlocks
@@ -270,7 +280,7 @@ function M.unlock_damp()
 end
 
 function M.unlock_puddles()
-    return called("add_harmless_fluid", "tiamot_weather:rainwater")
+    return called("add_harmless_fluid", "tiamat_weather:rainwater")
 end
 
 local DUST_WARMTH = 700

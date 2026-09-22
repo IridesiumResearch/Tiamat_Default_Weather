@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Generates the weather sounds for mods/tiamot_weather/sounds.
+"""Generates the weather sounds for mods/tiamat_weather/sounds.
 
 Placeholders, synthesised from filtered noise and written with the standard
 library's `wave` module, so each file is exactly one `fmt ` chunk and one
@@ -20,7 +20,7 @@ import struct
 import wave
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent.parent / "mods" / "tiamot_weather" / "sounds"
+OUT = Path(__file__).resolve().parent.parent / "mods" / "tiamat_weather" / "sounds"
 RATE = 22050
 
 
