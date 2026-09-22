@@ -452,6 +452,7 @@ function Stream:next_bool() end
 ---@field cutout boolean? Whether this block is see-through in PLACES rather than everywhere: leaves, a fern, a grate. **Not a variant of `transparent` — the opposite culling rule**, and a block declaring both is refused rather than given whichever the engine tests first. Glass hides the face between two panes so a window does not double up; foliage KEEPS the faces between two leaf blocks, because culled, a canopy is a hollow shell whose alpha holes look straight through the world at the sky. Drawn alpha-tested with the opaque world rather than blended, so it writes depth, occludes itself correctly at every angle, and needs none of the sorting §8.1 gave up on. Light passes as it does through glass; dappled shade is not expressible. Collision does NOT change — leaves are solid. The cost is that every interior face of a mass of foliage is drawn (Sub-Node Contract §8.2), which is what makes it look like foliage rather than a painted box.
 ---@field passable boolean? Whether a body walks through it: grass, ferns, vines. **Collision only.** The cell is still there for everything else — it meshes, it is lit, and a ray still STOPS at it, which is what lets a player aim at a tuft and break it. **It does not hold fluid out:** a block holding nothing but passable cells takes a whole block of water, so a plant under water is saturated rather than standing in a bubble of air, and a body swimming through it is as submerged as the water beside it. Without this every plant is a lip: collision is at sub-node resolution, so a two-cell fern is two thirds of a yard to climb, and foliage has to be built around that rather than around what it should look like (Sub-Node Contract §2).
 ---@field friction number? How much of the ordinary grip a body standing on it gets, 0 to 1: ice. Default 1. **Slow to start, slow to stop, slow to turn** — it scales how much speed a tick loses and the push that replaces it together, so a body on `friction = 0.1` glides several blocks after letting go; the top speed is the gait's own, reached more slowly. `0` neither slows nor pushes: a body keeps what it arrived with. Read at SUB-NODE resolution under the centre of the feet (Sub-Node Contract §2), so a block chiselled half from ice is slick only where the ice is. Walls need nothing: a body already slides along a wall. Outside 0..1 is refused. The client predicts the slide, so a slick floor is not a rubber-banding one.
+---@field washes boolean? Whether this fluid sweeps away a block that declared `washes_away`. Default true. **Set it false for a gentle fluid** — rain, a trickle, anything whose spread is incidental: a puddle that creeps a few cells into the grass beside it would otherwise strip it. The fluid's author decides rather than the plant's, because a plant cannot name every fluid in the world (Sub-Node Contract §4.3).
 ---@field light_falloff integer? How many levels of light a block of this material takes out of what passes through it, 0..15. Default 0, which is exactly what every block did before this existed. **For foliage that shades**: leaves are `cutout`, and a cutout block passes light the way glass does, so a canopy over a forest floor left it as bright as a meadow. Two levels a block gives a rainforest floor about 6 of 15 under three blocks of canopy. Daylight's free fall straight down ends at the first dimming block, so everything below the canopy costs the ordinary level a block as well — which is what makes a thick canopy dark beneath and a thin one dappled (Sub-Node Contract §8.2). Whole blocks of one material only, like `transparent`.
 ---@field washes_away boolean? Whether fluid running into this block sweeps it away: grass in a flood, a reed in a river. The block's cells are cleared as a dig would clear them, and **nothing is dropped** — what a washed plant leaves behind is yours to decide, from `register_on_fluid_flow`. Only a block whose occupied cells are ALL this material is cleared, so a fern sharing a block with a wall cannot take the wall with it. Pair it with `passable`: a flood runs THROUGH a passable plant, which is the case your mod cannot otherwise see, because `on_fluid_flow` reports the flows that were blocked (Sub-Node Contract §4.3).
 ---@field sway boolean? Whether the top of it moves in a fake wind: grass, leaves, a banner. **Presentation only** — the world does not know it is moving, so collision, lighting and the server's idea of where anything is are all untouched. The mesher marks the TOP EDGE of each face and the shader bends only those, so a plant bends from base to tip rather than sliding, and its base stays planted. The motion is smooth noise over world position and time, so a field leans in gusts rather than each plant buzzing on its own (Sub-Node Contract §8.3).
@@ -1867,6 +1868,13 @@ function game.play_loop(spec) end
 ---wherever you want the mob to go — the next waypoint of a route, or the player
 ---it is following.
 ---
+---**It jumps only for a rise the step cannot take.** The physics steps up one
+---sub-node — a third of a block — for nothing, so a chiselled lip is walked
+---over and only a taller rise is jumped. Before 2026-09-22 anything that was
+---not open floor counted as an obstacle, which on smoothed terrain meant a mob
+---hopped at nearly every rise; if you wrote your own steering to avoid that,
+---you can stop.
+---
 ---```lua
 ---game.register_on_tick(function()
 ---    for _, id in ipairs(game.entities_in_radius(home, 64, "mymod")) do
@@ -2400,6 +2408,7 @@ function game.play_sound(spec) end
 ---@field collide boolean? Whether one vanishes on reaching a solid cell — a drip stops at the floor. Default true. Passable blocks do not stop them.
 ---@field radius number? How far away a player may be and still be sent it. Default 32, at most 128.
 ---@field player? string A player's UUID in hex. Sends the burst to that one player and nobody else, provided they are in the domain and within `radius` — it narrows, never widens. How a mod honours its own "particles off" setting, and how rain is emitted per player rather than per patch of ground.
+---@field texture string? A picture to draw on each particle instead of the round dot: the 64 hex characters `game.register_picture` answers. The picture's own transparency is the particle's shape, and `colour` tints it — so one white heart serves red hearts and grey ones. A hash whose bytes have not reached the client yet draws the plain dot until they do.
 
 ---Scatters a burst of short-lived sprites — sea spray, a drip, mist.
 ---
@@ -2418,6 +2427,11 @@ function game.play_sound(spec) end
 ---game.emit_particles{ pos = at, count = 6, size = 2.5, lifetime = 8,
 ---    colour = { r = 0.8, g = 0.85, b = 0.8, a = 0.15 }, area = { x = 8, y = 1, z = 8 },
 ---    spread = 0.2, collide = false }
+---
+------ A picture on each one: thirteen dots make a heart, or one picture does.
+---local heart = game.register_picture{ id = "heart", file = "textures/heart.png" }
+---game.emit_particles{ pos = above, count = 3, size = 0.5, texture = heart,
+---    colour = { r = 1, g = 0.3, b = 0.4 }, velocity = { y = 1.5 }, lifetime = 1.5 }
 ---```
 ---
 ---Returns how many players were told — not a promise anybody SAW it. Bursts are
@@ -2428,6 +2442,49 @@ function game.play_sound(spec) end
 ---@param spec Tiamot.ParticleSpec
 ---@return integer told
 function game.emit_particles(spec) end
+
+---Fields accepted by `game.show_over`.
+---@class Tiamot.BadgeSpec
+---@field picture string Required. The 64 hex characters `game.register_picture` answered. Every icon in the row draws it.
+---@field count integer? How many icons, side by side. Default 1, at most 16. **Zero takes the badge down** before its time — a mob back to full health should not wear an empty bar.
+---@field seconds number? How long it stays, before fading over its last fifth. Default 2, at most 30.
+---@field size number? How big each icon is, in blocks across. Default 0.4, at most 4.
+---@field colour { r: number?, g: number?, b: number?, a: number? }? Tints the picture, 0..1; an unnamed channel is 1. One white heart serves red hearts and grey ones.
+---@field radius number? How far away a player may be and still be sent it. Default 32, at most 128.
+---@field player string? A player's UUID in hex. Shows it to that one player and nobody else — the hitter sees the hearts, not the whole server. Narrows, never widens.
+
+---Hangs a row of pictures over an entity, following it.
+---
+---Health bars, an "!" over a startled animal, a quest marker. The row is
+---camera-facing and level, centred over the entity's head, and it MOVES WITH
+---IT — where it is comes from the entity every frame, not from the call.
+---
+---**Latest state, not an event.** A badge replaces whatever that entity had,
+---so a bar draining over a second is a call a tick and costs one message per
+---network pass however often you ask. It expires on the client, so there is
+---nothing to take down; call it again with `count = 0` to take it down early.
+---
+---Unlit, unlike particles: a health bar nobody can read at night is a health
+---bar that does not work. Still depth-tested, so a mob behind a wall does not
+---advertise itself through it.
+---
+---Returns how many players were told. An entity that has gone — or was never
+---there — tells nobody and returns 0, which is an answer rather than an error.
+---
+---```lua
+---local heart = game.register_picture{ id = "heart", file = "textures/heart.png" }
+---
+------ Hit a cow: hearts over it for a second, for the player who hit it.
+---game.show_over(cow, { picture = heart, count = health, seconds = 1,
+---    size = 0.3, player = hitter })
+---
+------ And take it down the moment it is healed again.
+---game.show_over(cow, { picture = heart, count = 0 })
+---```
+---@param entity integer The entity to hang it over.
+---@param spec Tiamot.BadgeSpec
+---@return integer told
+function game.show_over(entity, spec) end
 
 ---A walkable route between two points, or why there is not one.
 ---
@@ -3577,7 +3634,7 @@ function game.rng_stream(pos, name) end
 ---    collider = { width = 0.6, height = 0.6 },
 ---}
 ---```
----@param spec { pos: { x: number, y: number, z: number }, model?: string, item?: table, health?: integer, nametag?: string, collider?: { width: number, height: number } }
+---@param spec { pos: { x: number, y: number, z: number }, model?: string, item?: table, health?: integer, speed?: number, nametag?: string, collider?: { width: number, height: number } }
 ---@return integer|nil id
 function game.spawn_entity(spec) end
 
@@ -3679,12 +3736,18 @@ function game.entity(id) end
 ---```lua
 ---game.set_entity(id, {
 ---    drive = { walk = { x = 1, z = 0 }, gait = "walk" },
+---    -- And how fast, as a multiple of the ordinary pace: a grazing animal is
+---    -- not a sprinting player. 1 is unchanged, 0 is rooted, 16 is the cap.
+---    -- The drive's direction is normalised, so a shorter one is NOT a slower
+---    -- one — this is the number that makes a cow amble. It is kept with the
+---    -- entity, so it survives a save, and may be set at `spawn_entity` too.
+---    speed = 0.5,
 ---    yaw = 1.57,
 ---    anim = 1,  -- WALK
 ---})
 ---```
 ---@param id integer
----@param spec { pos?: { x: number, y: number, z: number }, velocity?: { x: number, y: number, z: number }, yaw?: number, pitch?: number, health?: integer, anim?: integer, drive?: { walk?: { x: number, z: number }, jump?: boolean, gait?: "walk"|"sprint"|"sneak" } }
+---@param spec { pos?: { x: number, y: number, z: number }, velocity?: { x: number, y: number, z: number }, yaw?: number, pitch?: number, health?: integer, speed?: number, anim?: integer, drive?: { walk?: { x: number, z: number }, jump?: boolean, gait?: "walk"|"sprint"|"sneak" } }
 ---@return boolean changed
 function game.set_entity(id, spec) end
 

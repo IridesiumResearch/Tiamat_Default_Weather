@@ -62,6 +62,9 @@ random tick registered on `dirt` cannot be extended to a block registered
 later, and that cost is accepted.
 
 **`add_harmless_fluid(fluid)`** is called with `"tiamot_weather:rainwater"`.
+Since engine 2f9b036 the fluid itself declares `washes = false`, so a mod
+that has moved its plants to the engine's `washes_away` needs no list from
+anybody: rain cannot sweep them.
 It asks the leaves rule in `rules.lua` not to remove leaves this fluid presses
 on, and the lava rule not to quench against it. Weather already handles
 rainwater meeting lava as steam. If it answers `true`, **Weather turns

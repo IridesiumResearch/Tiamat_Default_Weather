@@ -157,6 +157,10 @@ impl particle::Access for Particles {
         self.bursts.lock().unwrap().push((now, request.clone()));
         1
     }
+    // Weather hangs nothing over anybody; the engine's own tests cover it.
+    fn show_over(&self, _: &particle::BadgeRequest) -> u32 {
+        0
+    }
 }
 
 /// What the client is told to draw the weather with: the sky, the rain and
@@ -627,6 +631,13 @@ fn weather_check(storage: Arc<Storage>) -> String {
     println!(
         "ok  storm: rain {:.0}/s at size {:.2} (opacity {opacity:.1}, 3x the first table is 12.0); sky {:.2} with fog {:.2}; {starts} loop calls; {} flashes, {claps} claps",
         rain.rate, rain.burst.size, sky.intensity, sky.fog_distance, flashes.len());
+
+    // Rain is too gentle to sweep a plant away (engine 2f9b036, ask W14):
+    // a puddle creeping into the grass beside it must not strip a meadow.
+    let rainwater = r.vm.registered_fluids().into_iter()
+        .find(|f| f.fluid == "tiamot_weather:rainwater").expect("rainwater is registered");
+    assert!(!rainwater.washes, "rain does not wash plants away");
+    println!("ok  rainwater is declared too gentle to sweep a plant away");
 
     // The cloud deck: registered once, shaped after the references, and
     // steered per player. Nothing is emitted as particles any more.

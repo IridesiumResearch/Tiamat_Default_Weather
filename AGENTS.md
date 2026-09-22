@@ -719,6 +719,31 @@ from a tick or a hook, near players (the call returns how many were told), and
 never from a generator. Mist is large, faint, slow and `collide = false`; a drip
 is small with gravity and `collide = true`.
 
+**A picture on each particle: `texture`.** Give the burst the hash
+`game.register_picture` answered and every particle in it draws that picture
+instead of the round dot. The picture's own transparency is the shape — a heart
+is a heart because of where its pixels are clear — and `colour` still tints it,
+so one white picture serves red hearts and grey ones without a second file. It
+costs one texture bind per picture per frame, and particles are grouped by
+picture before they are drawn, so a scene mixing plain dots and three pictures
+is four draws rather than one per particle. A hash whose bytes are still in
+flight draws the plain dot until they land: never nothing.
+
+**A row of pictures over an entity: `game.show_over(entity, spec)`.** Health
+bars, an "!" over a startled animal, a quest marker. The row is camera-facing,
+level, centred over the entity's head, and follows it — where it is comes from
+the entity every frame, not from your call, so you hang it once rather than
+re-hanging it every tick to keep up with a walking cow.
+
+It is **latest state**: a badge replaces whatever that entity had, so a bar
+draining over a second is a call a tick and still costs one message per network
+pass. It expires on the client by itself, so there is nothing to take down;
+`count = 0` takes it down early, which is what a mob healed back to full wants.
+`player` narrows it to the one who hit, as `emit_particles` does. Unlit, so it
+is readable at night, and depth-tested, so a mob behind a wall does not
+advertise itself through it. An entity that has gone tells nobody and returns
+0 — not an error.
+
 ---
 
 ## Interfaces: what a mod can and cannot do to the look
@@ -1289,12 +1314,22 @@ BLOCKED, and nothing blocked that one. Declare `washes_away` on the plant and
 the engine clears the block when fluid enters it. Nothing is dropped; if a
 washed plant should leave seeds, spawn them yourself.
 
+**And a fluid can decline to break them: `washes = false` on
+`register_fluid`.** Rain is a fluid and its puddles spread, so a shower would
+strip the meadow it fell on. The fluid's author sets this, not the plant's —
+a plant cannot know about every fluid in the world.
+
 **A floor can be slick: `friction` on `register_block`,** a share of the
 ordinary grip from 0 to 1. Ice at 0.1 is slow to start on and glides several
 blocks after the keys are let go. It is read per sub-node under the centre of
 the feet, it slides mobs as well as players, and the client predicts it, so do
 not build ice by pushing bodies from a tick hook — that is the rubber-banding
 version.
+
+**A mob's pace is `speed` on the entity** — `spawn_entity{ speed = 0.5 }` or
+`set_entity`. A drive's direction is normalised, so a shorter one is not a
+slower one; this is the multiplier that makes a cow amble rather than march at
+a player's walk. The same number, and the same code, that slows a player.
 
 **A player's movement is yours to limit, and flight yours to grant.**
 `game.set_player_abilities(uuid, { fly, speed, sprint, wind_sky })` — a Creative

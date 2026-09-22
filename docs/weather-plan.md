@@ -1009,3 +1009,22 @@ blizzard stratocumulus under cumulonimbus; a mega storm cumulonimbus 1.
   skips harmless fluids, so nothing is stripped today; filed as W14
   (`washes = false` on a fluid) before the Spindle moves to the engine's.
 
+### 10.12 Rain is gentle, and the clouds are asked for again (2026-09-22)
+
+- **W14 landed** (engine 2f9b036): a fluid may declare `washes = false`, and
+  rainwater does. A puddle creeping into the grass beside it cannot strip a
+  meadow, whatever plants another mod has moved to the engine's
+  `washes_away`. The native check reads it back off the registration.
+- **W15 filed.** In game the deck read as an outline with nothing in it, and
+  the reason is the engine's, not the deck's: in mode 3 the post pass fogs
+  every pixel by depth against the terrain's view distance, and a cloud is
+  hundreds of blocks up and kilometres out, so it saturates and the deck is
+  replaced by flat sky; `clouds.wgsl` fogs against the same number, which
+  washes modes 1 and 2 out too. Rendered at a 256-block view distance the
+  sky is empty (`docs/reference/cloud-fog-2026-09-22.png`). The ask carries
+  the fix, a base flat per HEAP rather than per deck (the "sharp flat crop"),
+  a long axis and crown shape per heap, and an optimisation pass measured at
+  1920 x 1080: the self-shadow culled with distance, candidate cells rejected
+  before they are hashed, a coarser pixel target and a half-resolution Normal
+  (`cloud-optimised-2026-09-22.png`, `cloud-fog-shape-prototype-2026-09-22.patch`).
+

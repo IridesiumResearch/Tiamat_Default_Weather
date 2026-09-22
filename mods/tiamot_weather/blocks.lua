@@ -77,6 +77,11 @@ game.register_fluid{
     evaporates = wx.config.RAIN_EVAPORATES,
     opacity = 0.35,
     color = { r = 120, g = 150, b = 170 },
+    -- Rain does not strip a meadow (engine 2f9b036, ask W14). A puddle
+    -- spreads a few cells into whatever is beside it, and a plant that
+    -- declared `washes_away` would go with it — which is a flood's business,
+    -- not a shower's.
+    washes = false,
 }
 
 -- The damp blocks exist only beside the Spindle, whose blocks they stand in
