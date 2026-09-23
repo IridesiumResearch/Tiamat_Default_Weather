@@ -1038,10 +1038,7 @@ the new id. **A world made under the old id does not carry over**: its
 mod, and its saved clock is not read, so the front starts again. Nothing is
 lost that was not weather.
 
-The mods do not all rename on the same day, so the Spindle is asked for
-under both names: `climate.lua` probes `tiamat_default_world` and then
-`tiamot_default_world`, `mod.toml` lists both in `optional_depends`, and
-everything the adapter names — its blocks, its lava, the damp pairs — is
-built from whichever answered. The native check runs the whole suite under
-the new id and the Spindle's old one.
+For the day the mods were mid-rename the Spindle was asked for under both
+names. Every sibling mod has moved since, so that fallback is gone:
+`tiamat_default_world` is the only id asked for.
 

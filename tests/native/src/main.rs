@@ -405,11 +405,7 @@ impl Rig {
     /// The whole rig: a Spindle stand-in's source (or none), and mods loaded
     /// AFTER weather as `(id, source, depends)`, for reading its exports.
     fn custom(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
-        Self::named(spindle, "tiamat_default_world", storage, prelude, after)
-    }
-    /// The same, with the Spindle under a given id: it is renaming from
-    /// Tiamot to Tiamat and weather has to work either side of that.
-    fn named(spindle: Option<&str>, spindle_id: &str, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
+        let spindle_id = "tiamat_default_world";
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mods").join(MOD);
         let mut vm = EngineVm::create(VmLimits::default()).unwrap();
         let entities = Entities(Arc::new(Mutex::new(HashMap::new())));
@@ -537,7 +533,6 @@ fn main() {
     queue_check();
     puddle_check();
     exports_check();
-    old_spindle_check();
     mega_check();
     plain_check();
     hud_check();
@@ -1213,23 +1208,6 @@ fn mega_check() {
     let said = r.reply(ALICE, "/weather mega");
     assert!(said.contains("the next in"), "{said}");
     println!("ok  mega storms: {per_year:.2} a year at a place, {strong_per_year:.2} strong; `{said}`");
-}
-
-// The Spindle under its OLD id, while it is still on the Tiamot name: the
-// adapter finds it, mirrors it, and its blocks are read under that id.
-fn old_spindle_check() {
-    let mut r = Rig::named(Some(SPINDLE_STANDIN), "tiamot_default_world", Arc::new(Storage::default()), "", &[]);
-    let x = 0.5 * 59000.0;
-    r.stand(ALICE, x, 100.0, "tiamot_default_world:dirt");
-    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
-    r.tick(41);
-    let reply = r.reply(ALICE, "/weather");
-    assert!(reply.contains("climate spindle"), "the old id is still the Spindle: {reply}");
-    assert!(reply.contains("humidity mirrored"), "and the mirror stands in for it: {reply}");
-    r.say(ALICE, "/weather set snow 5");
-    r.tick(40 * 25);
-    assert_eq!(r.hud(ALICE), "Snow");
-    println!("ok  the Spindle under its old id: `{reply}`");
 }
 
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.

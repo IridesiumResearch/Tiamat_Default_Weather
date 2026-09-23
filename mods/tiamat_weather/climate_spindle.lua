@@ -32,8 +32,7 @@ local config = wx.config
 
 local M = { name = "spindle", hud_row = config.HUD_ROW_SPINDLE }
 
--- The id the Spindle is installed under: `tiamat_default_world`, or
--- `tiamot_default_world` while it is still on the old name (climate.lua).
+-- The id the Spindle is installed under (climate.lua).
 local SPINDLE = wx.spindle_id or "tiamat_default_world"
 M.spindle_id = SPINDLE
 

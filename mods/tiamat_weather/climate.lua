@@ -19,18 +19,12 @@
 
 local config = wx.config
 
--- **The Spindle's id, either side of the rename** (2026-09-22). The engine
--- and its mods are moving from Tiamot to Tiamat, and they do not all move on
--- the same day. Whichever of the two is installed is the one asked; both are
--- in `optional_depends`, so either may be a dependency of ours.
-local SPINDLE_IDS = { "tiamat_default_world", "tiamot_default_world" }
+local SPINDLE_ID = "tiamat_default_world"
 
 local function spindle_id()
-    for _, id in ipairs(SPINDLE_IDS) do
-        local ok, block = pcall(game.get_block_id, id .. ":dirt")
-        if ok and block ~= nil then
-            return id
-        end
+    local ok, block = pcall(game.get_block_id, SPINDLE_ID .. ":dirt")
+    if ok and block ~= nil then
+        return SPINDLE_ID
     end
     return nil
 end

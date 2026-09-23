@@ -10,8 +10,6 @@ id = "tiamat_weather"
 name = "Tiamat Weather"
 version = "0.1.0"
 depends = ["core >=0.1"]
-# Both names, while the engine and its mods move from Tiamot to Tiamat and do
-# not all move on the same day. Neither has to be installed.
-optional_depends = ["tiamat_default_world >=0.1, <0.2", "tiamot_default_world >=0.1, <0.2"]
+optional_depends = ["tiamat_default_world >=0.1, <0.2"]
 description = "Rain, snow, storms and the ground they leave behind."
 license = "MIT"
