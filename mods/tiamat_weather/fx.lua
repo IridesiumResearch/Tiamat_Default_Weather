@@ -690,71 +690,42 @@ M.sky_of = sky_of
 local HAS_MAP = true
 local map_cells, map_kept = {}, 0
 
--- **Every cell is eased, and all of them the same way.** Inside the grid
--- the client draws a cell's shares in place of the player's own, and it
--- applies a new map at once: so the easing the player's square does for the
--- rain and the sky never reached the clouds overhead, and a cell that
--- answered its square's eased state beside cells answering the weather
--- function's own value drew a lighter box round the player for the forty
--- seconds a front took to arrive. Now each cell keeps a TARGET (its square's
--- target where somebody is standing, refreshed every evaluation for
--- nothing; the function's answer where nobody is, asked again every
--- CLOUD_MAP_TICKS) and an EASED value that moves CLOUD_MAP_EASE of the way
--- toward it per evaluation, the pace the square's own intensity moves. The
--- map is re-sent while anything moves, so the client's snap is a step of a
--- twentieth. A cell not visited for a while snaps to its target rather than
--- easing from a stale value, and a cell first seen starts at its target: a
--- newcomer's sky is there at once. The seam between two cells whose weather
--- differs is the engine's (ask W18): the map is read nearest-cell.
-local GENUS_KEYS = { "cover", "darkness", "strato", "alto", "nimbus" }
-local STALE_EVALS = 4
-
-local function towards(from, to, by)
-    if from < to then
-        return math.min(to, from + by)
-    end
-    return math.max(to, from - by)
-end
-
+-- **Every cell is a TARGET, and all of them the same kind.** Inside the
+-- grid the client draws a cell's shares in place of the player's own, and
+-- since engine 5056bb4 (ask W18) it eases a new map cell by cell over the
+-- ticks the message names, from the previous map. So the easing belongs to
+-- the client, and this side sends where the weather is going: a square
+-- somebody stands in answers its square's target (what evaluate() worked
+-- out, refreshed every evaluation for nothing; the eased state is for the
+-- rain, which the client does not ease); a square nobody is in answers the
+-- weather function's own value, asked again every CLOUD_MAP_TICKS. Before
+-- 5056bb4 the client applied a map at once, so for an afternoon this side
+-- eased each cell a twentieth per evaluation; with both easing, the sky
+-- trailed the rain by half a minute, so that is gone. One kind of value in
+-- every cell is also what stopped the player's square drawing as a lighter
+-- box in the map while a front eased in.
 local function cell_sky(cx, cz, tick)
     local key = controller.key_of(cx, cz)
     local square = controller.squares[key]
-    local c = map_cells[key]
-    local target = nil
     if square and square.kind and square.members and #square.members > 0 and square.target then
-        target = sky_of(square.target, square.target_intensity, square.target_mega)
-    elseif c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
-        local x, z = controller.centre_of(cx, cz)
-        local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
-        target = sky_of(kind, intensity, mega)
+        return sky_of(square.target, square.target_intensity, square.target_mega)
     end
-    if c == nil then
+    local c = map_cells[key]
+    if c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
         if map_kept > 8192 then
             map_cells, map_kept = {}, 0
         end
-        map_kept = map_kept + 1
-        local eased = {}
-        for _, g in ipairs(GENUS_KEYS) do
-            eased[g] = target[g]
+        local x, z = controller.centre_of(cx, cz)
+        local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
+        local sky = sky_of(kind, intensity, mega)
+        if c == nil then
+            map_kept = map_kept + 1
         end
-        c = { tick = tick, stepped = tick, target = target, eased = eased }
+        sky.tick = tick
+        c = sky
         map_cells[key] = c
-        return eased
     end
-    if target ~= nil then
-        c.target, c.tick = target, tick
-    end
-    if tick - c.stepped >= config.EVAL_TICKS then
-        local by = config.CLOUD_MAP_EASE
-        if tick - c.stepped > STALE_EVALS * config.EVAL_TICKS then
-            by = 1.0
-        end
-        c.stepped = tick
-        for _, g in ipairs(GENUS_KEYS) do
-            c.eased[g] = towards(c.eased[g], c.target[g], by)
-        end
-    end
-    return c.eased
+    return c
 end
 
 -- A cell with towers over it: what /weather clouds counts as stormy. A quarter
@@ -815,22 +786,13 @@ local BASE_SNAP_STEPS = 8
 
 local function clouds_for(uuid, where, square, was)
     local sky = sky_of(square.kind, square.intensity, square.mega)
-    -- The floor moves a step an evaluation toward where it should be, since
-    -- the client applies `base` as it arrives: at the alpine border the deck
-    -- climbs its lift over ten seconds rather than jumping it. A player who
-    -- has gone far (a teleport, the rim from the axis) gets the floor there
-    -- at once, because a deck sinking for a minute after a /tp is worse than
-    -- a jump nobody saw the start of.
-    local target = floor_at(where.x, where.y, where.z)
-    local step = config.CLOUD_BASE_STEP
-    local base = was.base or target
-    if math.abs(target - base) > BASE_SNAP_STEPS * step then
-        base = target
-    elseif base < target then
-        base = math.min(target, base + step)
-    elseif base > target then
-        base = math.max(target, base - step)
-    end
+    local base = floor_at(where.x, where.y, where.z)
+    -- The client eases the floor with the rest (engine 5056bb4), so at the
+    -- alpine border the deck climbs its lift over CLOUD_EASE_TICKS. A player
+    -- who has gone far in one step — a teleport, the rim from the axis — gets
+    -- the sky there at once instead, since a deck sliding down for half a
+    -- minute after a /tp is worse than a jump nobody saw the start of.
+    local journey = was.base ~= nil and math.abs(base - was.base) > BASE_SNAP_STEPS * config.CLOUD_BASE_STEP
     was.base = base
     local map, map_key, storms
     if HAS_MAP then
@@ -843,7 +805,7 @@ local function clouds_for(uuid, where, square, was)
     end
     -- A player's first sky is there at once: easing it in from nothing would
     -- show a newcomer a clear sky for the first half minute. Only a change of
-    -- weather is eased.
+    -- weather is eased, and not one that came with a journey.
     local first = was.clouds == nil
     was.clouds = key
     local spec = {
@@ -851,7 +813,7 @@ local function clouds_for(uuid, where, square, was)
         darkness = sky.darkness,
         base = base,
         map = map,
-        ease_ticks = first and 0 or config.CLOUD_EASE_TICKS,
+        ease_ticks = (first or journey) and 0 or config.CLOUD_EASE_TICKS,
     }
     if HAS_GENERA then
         for short, field in pairs(GENUS_FIELD) do

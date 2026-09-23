@@ -1383,30 +1383,23 @@ Two screenshots from the designer, both kept beside the engine sheet.
 - **A straight vertical seam through the deck, the cloud cut along it**
   (`map-seam-2026-09-23.webp`, Temperate Woodlands, light rain), and in the
   Crown a slab with a flat vertical wall (`map-chopped-2026-09-23.webp`).
-  Both are the cover map's cell edges. The client reads the map
-  **nearest-cell** — its comment says an interpolated boundary "buys nothing
+  Both are the cover map's cell edges. The client read the map
+  **nearest-cell** — its comment said an interpolated boundary "buys nothing
   a player could see" — and since W16 the five shares vary per cell, so a
-  cell in rain beside a cell in storm draws a sheet at 0.85 against towers
-  at 0.60 with a plane between them, and a genus a cell has and its
-  neighbour has not ends in a wall. Two halves of it are Weather's to
-  answer for, and one is fixed here: a square somebody stood in answered
-  its EASED state while every other cell answered the weather function's
-  own value, so for the forty seconds a front took to arrive the player's
-  own square was a lighter box in the map, edged on all four sides; and the
-  client applies a new map at once, so the easing `set_clouds` asks for
-  never reached the clouds overhead at all — inside the grid the cell
-  replaces the player's own shares. Now **every cell is eased**: each keeps a
-  target (its square's target where somebody stands, the function's answer
-  elsewhere, refreshed every `CLOUD_MAP_TICKS`) and moves `CLOUD_MAP_EASE`
-  (0.05) of the way toward it per evaluation, the pace the square's own
-  intensity moves; the map is re-sent while anything moves, so the client's
-  snap is a step of a twentieth. The seam that is left is where two cells'
-  weather really differs, and that is the engine's: **W18** asks for the map
-  to be read filtered — bilinear across cell centres, which is the texture
-  sampler's one fetch if the grid is uploaded as a texture — so a front is a
-  gradient a cell wide rather than a plane, and for the map's arrival to be
-  eased on the client as the plain shares are, so a re-sent map does not
-  step.
+  cell in rain beside a cell in storm drew a sheet at 0.85 against towers at
+  0.60 with a plane between them, and a genus a cell had and its neighbour
+  had not ended in a wall. One half of it was Weather's, and is fixed: a
+  square somebody stood in answered its EASED state while every other cell
+  answered the weather function's own value, so for the forty seconds a
+  front took to arrive the player's own square was a lighter box in the
+  map, edged on all four sides. Every cell now answers **one kind of value,
+  the target**: a square somebody stands in its square's target, the rest
+  the function's own answer. The other half was the engine's, filed as
+  **W18** and landed the same evening (10.18): the map is read filtered and
+  the deck and the map are eased on the client. For the hour between, this
+  side eased each cell a twentieth per evaluation, since the client then
+  applied a map at once; with both easing, the sky trailed the rain by half
+  a minute, so that came out again when W18 landed.
 - **The alpine deck was too low.** The floor is `CLOUD_ABOVE` (400) over the
   Spindle's base dome, and the Crown's mountains stand up to 0.9 km over the
   dome (`alpine_highlands.lua`, `RIDGE_AMP`), so the designer stood above
@@ -1416,12 +1409,11 @@ Two screenshots from the designer, both kept beside the engine sheet.
   whose terrain fades into the alpine's — and nothing elsewhere or on a
   plain world. The floor is still stepped by 64 and still a floor: the
   highest peaks reach through it, which the designer liked. The lift changes
-  at a biome border, and the client applies `base` as it arrives (it eases
-  nothing of the deck's own state — `ease_ticks` on `set_clouds` is carried
-  and never read, which W18 says too), so the floor is eased here: a step of
-  64 per evaluation toward where it should be, the whole lift in ten
-  seconds, and a jump only for a player who has gone further than eight
-  steps at once, a teleport or the rim from the axis.
+  at a biome border, and the client eases the floor with the rest of the
+  deck (W18), so the deck climbs its lift over `CLOUD_EASE_TICKS`. A player
+  who has gone further than eight steps at once — a teleport, the rim from
+  the axis — is sent `ease_ticks = 0` and gets the sky there at once, as a
+  newcomer does.
 
 - **"The clouds could be a little bit bigger too."** Heaps sit on a lattice
   `0.42 / CLOUD_FREQUENCY` blocks apart and each is 0.30 to 0.68 of that
@@ -1431,7 +1423,28 @@ Two screenshots from the designer, both kept beside the engine sheet.
   it. `CLOUD_THICKNESS` goes from 160 to 200, so they stand taller as well.
   Both are one number in `config.lua` if the eye wants more or less.
 
-**Checked by `tests/native`:** six evaluations into a forced storm the map's
-cell overhead is part of the way to the storm's darkness, and fully there
-after twenty-five; the floor over the alpine highlands is 320 higher than
-over the woodlands, and over the taiga 160.
+**Checked by `tests/native`:** one evaluation into a forced storm the map's
+cell overhead already names the storm's darkness and the client is told to
+take its time; over a steady square the cell overhead and the player's own
+shares do not change in ten evaluations; the floor over the alpine highlands
+is 320 higher than over the woodlands, and over the taiga 160.
+
+### 10.18 W17 and W18 land (2026-09-23)
+
+Both filed and built in one afternoon.
+
+- **W17** (engine 8259c0e): the deck's sun is the terrain's, the keyframe's
+  colour times its intensity, and a sun under the horizon lights nothing —
+  the two lines of the prototype. At Core Sky's midnight the deck from below
+  is no brighter than twice the sky behind it and no brighter than its own
+  top. **One reading in the ask did not survive measurement**: it said
+  golden hour lights the bases warmer than the tops, and at 0.73 the tops
+  are a touch warmer (0.239 to 0.228), before the change and after — a sun
+  seven degrees up faces the tops. The engine's gate keeps the bases LIT at
+  golden hour rather than warmer, which is what the eye had actually seen.
+- **W18** (engine 5056bb4): the map travels as two small textures under a
+  linear sampler, so a front is a gradient a cell wide and the grid's own
+  edge fades into the plain state; and the deck and the map are eased on the
+  client over the ticks `set_clouds` names, the map cell by cell from the
+  previous map. This side stops easing map cells (10.17) and the floor, and
+  sends `ease_ticks = 0` for a journey as well as a first sky.

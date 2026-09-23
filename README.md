@@ -127,12 +127,3 @@ world has none.
   cumulonimbus, a mega storm supercells — in the cover map too, so a storm
   over the next valley has its anvil — and the deck shades the ground under
   it. How fine it is drawn is each player's own graphics setting.
-- **Clouds glow from underneath at night.** The client lights the deck with
-  the keyframe's sun colour unscaled by its intensity, and at night the sun
-  is under the horizon, so the underside is the lit side. Filed with the
-  engine as W17, with the two-line fix.
-- **Straight seams and chopped clouds along the cover map's cells.** The
-  client reads the map nearest-cell, 256 blocks a cell, and since W16 the
-  shapes vary per cell too, so where the weather differs between two cells
-  a cloud is cut along the line between them. Weather eases every cell now,
-  so the seam is only where a front really is; filing it as W18.

@@ -105,7 +105,6 @@ return {
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
     CLOUD_MAP_SIZE = 16,        -- the cover map around a player, in squares a side (engine max 16)
     CLOUD_MAP_TICKS = 400,      -- how stale a square nobody is in may be before its weather is asked again
-    CLOUD_MAP_EASE = 0.05,      -- the share of the way a map cell moves toward its weather each evaluation: the square's own EASE
     -- The floor stands higher where the ground does. The Spindle's Crown has
     -- mountains up to 0.9 km over the dome (climate_spindle.lua, MIRRORS), and
     -- a floor CLOUD_ABOVE over the dome sat mid-mountain there. Lifted by

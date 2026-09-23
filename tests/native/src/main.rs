@@ -745,14 +745,16 @@ fn weather_check(storage: Arc<Storage>) -> String {
 
     let set = r.reply(ALICE, "/weather set storm 5");
     assert!(set.starts_with("storm over square"), "{set}");
-    // Six evaluations in, the cover map's cell overhead is part of the way
-    // to the storm — the map is eased cell by cell, at the square's pace,
-    // since the client draws the cell in place of the player's own shares.
-    r.tick(40 * 6);
-    let easing = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a cover map on the way");
-    let part = easing.darkness[8 * 16 + 8];
-    assert!((40..=160).contains(&part), "the cell overhead eases toward the storm: darkness {part} after six evaluations");
-    r.tick(40 * 19);
+    // One evaluation in, the cover map's cell overhead already names the
+    // storm: the map carries where the weather is GOING and the client eases
+    // it there over the ticks the message names (engine 5056bb4, ask W18),
+    // so the storm and the rain arrive together.
+    r.tick(40);
+    let sent = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a cover map");
+    let target = sent.darkness[8 * 16 + 8];
+    assert!(target >= 225, "the cell overhead is sent at the storm's own darkness at once: {target}");
+    assert!(r.clouds_of(ALICE).unwrap().ease_ticks >= 400, "and the client is told to take its time");
+    r.tick(40 * 24);
     assert_eq!(r.hud(ALICE), "Storm");
     let reply = r.reply(ALICE, "/weather");
     assert!(reply.starts_with("storm at 1000"), "{reply}");
@@ -930,9 +932,9 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(fair.cover > 0.0 && fair.cover < 0.3 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
     assert!(fair.altocumulus > 0.2 && fair.stratocumulus == 0.0 && fair.cumulonimbus == 0.0, "a mackerel sky and nothing heavy: {fair:?}");
     assert_eq!(fair.base, Some(floor));
-    // The map's cell overhead is still easing from the storm to the clear
-    // sky, a twentieth an evaluation, and every step of that is a re-send:
-    // let it finish before looking at a sky that is steady overhead.
+    // The square's own shares are still easing from the storm to the clear
+    // sky, and every step of that is a re-send: let it finish before looking
+    // at a sky that is steady overhead.
     r.tick(40 * 22);
     let calls = *r.atmosphere.cloud_calls.lock().unwrap();
     let before = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a map");
@@ -940,8 +942,8 @@ fn weather_check(storage: Arc<Storage>) -> String {
     r.tick(400);
     // Ten evaluations: overhead nothing changes — the cell Alice is under and
     // her own shares are what they were — while the four kilometres of map
-    // round her go on easing wherever a front is moving, at most one send an
-    // evaluation. A steady sky over one square is never a still world.
+    // round her are asked again wherever a front is moving, at most one send
+    // an evaluation. A steady sky over one square is never a still world.
     let after = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a map");
     let middle = 8 * 16 + 8;
     assert_eq!(
