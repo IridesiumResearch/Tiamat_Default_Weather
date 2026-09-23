@@ -117,9 +117,6 @@ world has none.
   and `set_alight` for whoever stands within three blocks of a landed bolt.
   Without Life, fire burns wood and grass and nothing else. See
   [`docs/exports-contract.md`](docs/exports-contract.md).
-- **A storm over the next valley has no anvil.** The cover map carries
-  cumulus and darkness per square and the genera per player, so the towers
-  are overhead only. Filed with the engine as W16.
 - **Still lava is found by its light**, because nothing names a standing
   fluid: a surface holding fluid that glows red is hot. A mod's lava that
   does not glow is not found, and lights nothing until it flows.
@@ -127,5 +124,10 @@ world has none.
   engine's raymarch (2026-09-18), shaped after `docs/reference/`, with four
   genera since 2026-09-23 — a clear day is a few cumulus and some
   altocumulus, rain a stratocumulus sheet, a storm the sheet under
-  cumulonimbus, a mega storm supercells — and the deck shades the ground
-  under it. How fine it is drawn is each player's own graphics setting.
+  cumulonimbus, a mega storm supercells — in the cover map too, so a storm
+  over the next valley has its anvil — and the deck shades the ground under
+  it. How fine it is drawn is each player's own graphics setting.
+- **Clouds glow from underneath at night.** The client lights the deck with
+  the keyframe's sun colour unscaled by its intensity, and at night the sun
+  is under the horizon, so the underside is the lit side. Filed with the
+  engine as W17, with the two-line fix.

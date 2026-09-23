@@ -42,10 +42,20 @@ license = "MIT"
 ```
 
 `conflicts` is for a mod that replaces another outright — an inventory screen
-beside the reference one is two hotbars, not two features. With both present
-the server refuses to start and `--check-mods` fails, naming both and the way
-out: `enabled_mods` in the server's config, or the mod list when a world is
-made. It reaches a mod through an alias it `provides` as well.
+beside the reference one is two hotbars, not two features. Between two
+ordinary mods the set is refused: the server does not start and `--check-mods`
+fails, naming both and the way out (`enabled_mods` in the server's config, or
+the mod list when a world is made). **Against one of the engine's own reference
+mods it is different**: the fixture stands aside and yours loads in its place,
+with nothing to disable by hand. It reaches a mod through an alias it
+`provides` as well, and a mod that `provides` a reference mod's id puts it aside
+the same way.
+
+The mods under `game/core_*` carry `reference = true`. It means "a fixture,
+not content": they load before every other mod, lose a tie the lowest id
+would otherwise win (the sky, the cloud deck), step aside for a mod that
+replaces them, and the start screen folds them away. A mod of yours must not
+set it.
 
 Validate without launching the game — this is the fast loop, and it catches
 typos, namespace errors and load-order problems in seconds:
@@ -521,7 +531,9 @@ of rain over the next valley.
 **A storm over the next valley is `map` on `set_clouds`** — a coarse grid of
 cover and darkness laid over the world rather than over the player, sampled
 where each ray of the deck passes, with the plain `cover` still answering
-outside the grid. Up to 16 cells a side; at the 256-block squares a weather mod
+outside the grid — and the three genera per cell beside them, each optional,
+so a storm over the next valley has its sheet and its anvil from the clear
+valley beside it. Up to 16 cells a side; at the 256-block squares a weather mod
 tends to evaluate that is four kilometres, which is further than the deck is
 drawn. Values are shares of one and travel as bytes. Without it, a front cannot
 be watched coming: the sky a player sees is overcast everywhere or nowhere.

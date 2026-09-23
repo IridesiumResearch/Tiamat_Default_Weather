@@ -1315,16 +1315,20 @@ Later the same day, everything open landed at once, in three repositories.
 - **W15, the last step** (engine 2749ac8): `Normal` and `Coarse` march the
   deck at half resolution and lift it into the frame with its depth. The
   player's own setting; nothing here changes.
-- **The sheet is empty, but one thing is filed: W16.** The cover map (W10)
-  carries `cover` and `darkness` per square and nothing else, and the client
-  reads the genera from the per-player state alone, so a storm's towers stand
-  only over the square the player is in — from the clear valley beside it a
-  storm is 40% cumulus under a dark haze. Sending the storm's whole cover as
-  cumulus would make the distance read overcast, but inside the grid the
-  map's cell REPLACES the per-player `cover` (the cell overhead is the sky
-  overhead), so the same trick puts a full cumulus deck under the towers
-  overhead. The ask is a byte per genus per cell, optional, with today's
-  callers unchanged. Until it lands the map stays cumulus and darkness.
+- **W16, filed and landed the same evening** (engine aa7ab21, protocol
+  v74). The cover map (W10) carried `cover` and `darkness` per square and
+  nothing else, and the client read the genera from the per-player state
+  alone, so a storm's towers stood only over the square the player was in —
+  from the clear valley beside it a storm was 40% cumulus under a dark haze.
+  Sending the storm's whole cover as cumulus would have made the distance
+  read overcast, but inside the grid the map's cell REPLACES the per-player
+  `cover` (the cell overhead is the sky overhead), so the same trick would
+  have put a full cumulus deck under the towers overhead. The map now takes
+  `stratocumulus`, `altocumulus` and `cumulonimbus` arrays, a byte a cell,
+  and `map_around` sends the five shares `sky_of` already computes;
+  `/weather clouds` counts a square stormy by its towers (a quarter or more)
+  rather than its darkness. An engine without them refuses the arrays and the
+  first refusal drops them, before the player's genera and before the map.
 - **Fire hurts** (Life a1d016c). Life exported what `exports-contract.md`
   asked for, in the direction the builders wrote it — Life first, Weather
   calling — and a third function, `set_alight(target, ticks)`, for lightning.
@@ -1348,3 +1352,26 @@ towers; a mega storm `cumulonimbus 1`; the cover map's cell overhead is the
 storm's own cumulus share; and beside a stand-in Life that exports the three
 functions, Weather calls both unlocks at load with the contract's arguments
 and a bolt six blocks from Alice sets her alight for 100 ticks, by her UUID.
+
+### 10.16 The deck glows from below at night, asked for (2026-09-23)
+
+The designer: "clouds at night time seem to glow from the underside. they
+kind of just need to be dark." Read in the client: `prepare_clouds`
+(`render/mod.rs`) hands the deck the keyframe's `sun` colour as it is, while
+the terrain is drawn as stored sunlight times `sun_intensity`
+(`world.wgsl`, `input.sun * globals.sun_intensity`). Core Sky's night frames
+are `sun = {0.35, 0.45, 0.80}` at `intensity = 0.08`, so the ground is at
+eight percent and the deck's lit side is at a hundred — and at night the sun
+is UNDER the horizon, so the deck's lit side is its underside: `facing =
+dot(normal, toward_sun)` is largest there, and the warm term, the low-sun rim
+and the in-scatter all land on it at full moonlight blue. Nothing on this
+side reaches it: `register_clouds`'s `colour` and `shade` are constants, and
+`set_sky_modifier`'s intensity multiplies a number the deck never reads.
+
+Filed as W17 with a prototype (`docs/engine-asks/tiamat_weather/
+night-deck-prototype-2026-09-23.patch`, in the engine repository): the deck's
+`sun` multiplied by `sun_intensity` where the frame is built, exactly as the
+terrain has it, and in the shader the three sun terms faded out over the last
+few degrees before the sun sets — `horizon = smoothstep(-0.15, 0.0,
+toward_sun.y)` — so golden hour still lights the bases and the night lights
+nothing. With both, a night deck is the sky-lit `shade * sky` alone: dark.

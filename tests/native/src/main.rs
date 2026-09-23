@@ -839,9 +839,13 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert_eq!(map.origin, [((cx - 8) * 256) as f32, ((100_i32.div_euclid(256) - 8) * 256) as f32]);
     assert_eq!((map.cover.len(), map.darkness.len()), (256, 256));
     let middle = 8 * 16 + 8;
-    // The map carries cumulus and darkness alone (ask W16 is the genera), and
-    // its cell overhead is the sky overhead: the storm's own 0.40 of heaps.
+    // The map carries all five shares (engine aa7ab21, ask W16), and its cell
+    // overhead is the sky overhead: the storm's own heaps, sheet and towers.
     assert!((100..=104).contains(&map.cover[middle]) && map.darkness[middle] >= 225, "overhead is the storm: {} {}", map.cover[middle], map.darkness[middle]);
+    assert_eq!((map.stratocumulus.len(), map.altocumulus.len(), map.cumulonimbus.len()), (256, 256, 256), "five shares a cell");
+    assert!((176..=181).contains(&map.stratocumulus[middle]) && (151..=155).contains(&map.cumulonimbus[middle]) && map.altocumulus[middle] == 0,
+        "the storm's sheet and towers overhead: {} {} {}", map.stratocumulus[middle], map.cumulonimbus[middle], map.altocumulus[middle]);
+    assert!(map.cumulonimbus.iter().any(|c| *c == 0), "and no towers over the calm squares");
     let calmer = map.darkness.iter().filter(|d| **d < 128).count();
     assert!(calmer > 0, "the storm is not everywhere: every square's darkness is {:?}", &map.darkness[..16]);
     assert!(said.contains("of the 256 squares around you are stormy"), "{said}");

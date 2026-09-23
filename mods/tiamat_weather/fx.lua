@@ -686,12 +686,13 @@ M.sky_of = sky_of
 local HAS_MAP = true
 local map_cells, map_kept = {}, 0
 
+-- The five shares over one cell: `sky_of`'s table, kept a while for a
+-- square nobody is in.
 local function cell_sky(cx, cz, tick)
     local key = controller.key_of(cx, cz)
     local square = controller.squares[key]
     if square and square.kind and square.members and #square.members > 0 then
-        local sky = sky_of(square.kind, square.intensity, square.mega)
-        return sky.cover, sky.darkness
+        return sky_of(square.kind, square.intensity, square.mega)
     end
     local c = map_cells[key]
     if c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
@@ -701,29 +702,47 @@ local function cell_sky(cx, cz, tick)
         local x, z = controller.centre_of(cx, cz)
         local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
         local sky = sky_of(kind, intensity, mega)
-        local cover, darkness = sky.cover, sky.darkness
         if c == nil then
             map_kept = map_kept + 1
         end
-        c = { tick = tick, cover = cover, darkness = darkness }
+        sky.tick = tick
+        c = sky
         map_cells[key] = c
     end
-    return c.cover, c.darkness
+    return c
+end
+
+-- A cell with towers over it: what /weather clouds counts as stormy. A quarter
+-- is a storm about forty percent eased in, or a blizzard at half strength.
+local STORMY_TOWERS = 0.25
+
+-- An engine older than W16 (before aa7ab21) takes a map of cover and
+-- darkness alone; the first refusal drops the three arrays, once and for good.
+local HAS_MAP_GENERA = true
+
+local function byte_of(share)
+    return string.char(math.floor(share * 255 + 0.5))
 end
 
 -- The map around a square, and a key that changes when any byte of it does.
+-- **Five shares a cell since W16** (engine aa7ab21, protocol v74): the
+-- genera ride beside the cover and the darkness, so a storm over the next
+-- valley has its anvil and a front is watched coming as the front it is.
+-- Inside the grid the cell's shares replace the player's own, so the cell
+-- overhead is exactly the sky `clouds_for` sends.
 local function map_around(square, tick)
     local size = config.CLOUD_MAP_SIZE
     local half = size // 2
-    local covers, darks, bytes = {}, {}, {}
+    local covers, darks, stratos, altos, nimbi, bytes = {}, {}, {}, {}, {}, {}
     local storms = 0
     for j = 0, size - 1 do
         for i = 0, size - 1 do
-            local cover, darkness = cell_sky(square.cx - half + i, square.cz - half + j, tick)
+            local sky = cell_sky(square.cx - half + i, square.cz - half + j, tick)
             local n = #covers + 1
-            covers[n], darks[n] = cover, darkness
-            bytes[n] = string.char(math.floor(cover * 255 + 0.5), math.floor(darkness * 255 + 0.5))
-            if darkness >= 0.5 then
+            covers[n], darks[n] = sky.cover, sky.darkness
+            stratos[n], altos[n], nimbi[n] = sky.strato, sky.alto, sky.nimbus
+            bytes[n] = byte_of(sky.cover) .. byte_of(sky.darkness) .. byte_of(sky.strato) .. byte_of(sky.alto) .. byte_of(sky.nimbus)
+            if sky.nimbus >= STORMY_TOWERS then
                 storms = storms + 1
             end
         end
@@ -736,6 +755,9 @@ local function map_around(square, tick)
         cover = covers,
         darkness = darks,
     }
+    if HAS_MAP_GENERA then
+        map.stratocumulus, map.altocumulus, map.cumulonimbus = stratos, altos, nimbi
+    end
     return map, square.cx .. ":" .. square.cz .. ":" .. table.concat(bytes), storms
 end
 
@@ -773,9 +795,15 @@ local function clouds_for(uuid, where, square, was)
         end
     end
     -- An engine older than the map or the genera refuses the field; send
-    -- without it, once and for good. The genera are tried first, since an
-    -- engine with the map but not the genera is the likelier of the two.
+    -- without it, once and for good, newest field first: the map's genera
+    -- (W16), then the player's (W13), then the map itself (W10).
     local ok, err = pcall(game.set_clouds, uuid, spec)
+    if not ok and map ~= nil and HAS_MAP_GENERA then
+        HAS_MAP_GENERA = false
+        game.log("tiamat_weather: this engine takes no genera in the cloud map, so a distant storm has no anvil: " .. tostring(err))
+        map.stratocumulus, map.altocumulus, map.cumulonimbus = nil, nil, nil
+        ok, err = pcall(game.set_clouds, uuid, spec)
+    end
     if not ok and HAS_GENERA then
         HAS_GENERA = false
         game.log("tiamat_weather: this engine takes no cloud genera, so the sky is cumulus alone: " .. tostring(err))
