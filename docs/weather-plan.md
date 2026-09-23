@@ -563,9 +563,164 @@ because two players in one domain can stand under different weather.
   overlapped two to four times over. One message per change, and the client
   keeps a quarter of its particle budget free of rain.
 - **The lightning** (`flash`): in a storm, one evaluation in `THUNDER_ODDS`
-  strikes within `STRIKE_REACH` of the square's first player. The flash is
-  seen at once within `STRIKE_SEEN`; the thunder is queued and played when the
-  sound would have arrived, at 19 blocks a tick.
+  strikes within `STRIKE_REACH` of the square's first player. **Since
+  2026-09-23 it lands.** `STRIKE_CANDIDATES = 3` points are drawn within
+  reach, `surface_at` finds the top of each column, and the bolt takes the
+  highest, one block over it: lightning finds the tallest thing. The flash is
+  seen at once within `STRIKE_SEEN`, a burst of sparks marks the point by day
+  when a flash cannot be seen, and the thunder is queued and played when the
+  sound would have arrived from there, at 19 blocks a tick. What the bolt
+  does to the ground is 5.12. If no column answers (unloaded, or nothing
+  within 128 blocks under any point) the flash is centred `STRIKE_ABOVE` over
+  the player, as before, and touches nothing. `/weather strike` aims one at
+  the crosshair.
+
+### 5.12 Fire  [now]
+
+Built 2026-09-23, for the designer's "lightning, fire from lava, mini forest
+fires and field fires, and I don't want things getting out of control". The
+last clause is the first requirement: every number here is a cap before it
+is a look.
+
+**A fire is the fuel's block, replaced.** A burning block is
+`tiamat_weather:fire`, a passable, swaying `"cross"` billboard that emits
+light (15, 9, 2), washes away and drops nothing, standing where the fuel was
+for the fuel's `burn` ticks; then it is replaced by the fuel's residue.
+Leaves and plants burn to air; a trunk burns to `charred_log`, so a burnt
+wood is standing black trunks. When a plant burns out on a whole block in
+`climate.scorch` (the Spindle's `grass` and `mulch`) that block becomes
+`scorched_ground`, so a field fire leaves a black patch. Turf itself is never
+fuel: a burning ground block would be a pit for the burn's duration. A block
+holding any fluid is never fuel (reeds in water, a flooded tuft); a partial
+block (ivy cells, a chiselled log) is fuel if its material is.
+
+**What burns is the adapter's table**, `climate.fuel`: material → `{ catch,
+burn, residue, kind }`, `catch` in permille, every name resolved with `pcall`
+so a Spindle missing one still loads. On the Spindle:
+
+| Kind | Burns for | Leaves | Catches |
+|---|---|---|---|
+| canopy: leaves, needles, blossom, gorse | 300 t | air | 800 for most; needles 900, gorse 950; willow 700; kapok and ironwood (a wet giant) 400, mangrove (over water) 300, redwood (resin: the needles go) 600 |
+| wood: logs, planks | 900 t; a dead log 500, planks 700 | `charred_log` | 250 for most; fir and juniper 300; mangrove and redwood 200; ironwood 100; a dead log 700; planks 300 |
+| plant: grass, fern, bramble, heather, the flowers, reeds, ivy | 240 t; dead sagebrush 80 | air | 300–800; dead sagebrush 950 |
+
+A tuft burns twelve seconds, not the six first specified: in a flat meadow
+only eight of a fire's twenty-six neighbours are tufts, so at six seconds a
+field fire in dry, warm country lit fewer than one tuft for each that burnt
+and went out after two. At twelve it creeps to a black patch of a few dozen
+blocks and still ends short of its cap (`fire_field_check`).
+
+The plain adapter has no fuel, no scorch table and no hot blocks: a plain
+world has nothing Weather knows how to burn (10.14).
+
+**A blaze is one ignition and everything it spread to**, and the caps are on
+blazes and on the world:
+
+| | |
+|---|---|
+| `FIRE_MAX_BLAZES = 4` | blazes alight at once, world-wide |
+| `FIRE_MAX_BURNING = 120` | burning blocks at once, world-wide; nothing lights past it |
+| `FIRE_FOREST_BLOCKS = 60`, `FIRE_FOREST_RADIUS = 12` | blocks a forest blaze may light in its life, and how far (horizontally, Chebyshev) from where it started |
+| `FIRE_FIELD_BLOCKS = 90`, `FIRE_FIELD_RADIUS = 16` | a field fire spreads wider and leaves less |
+| `FIRE_BLAZE_TICKS = 3600` | a blaze spreads for at most three minutes, then only burns down |
+| `FIRE_REST_TICKS = 24000` | a square that had a blaze starts no natural one for a game day |
+| `FIRE_APART = 48` | a natural blaze starts no nearer than this to a live one's origin |
+
+A blaze is `"field"` if its first fuel was a plant, else `"forest"`, and that
+picks its cap and radius. An ignition within a live blaze's radius joins it
+and counts against its cap rather than starting a new one. `/weather fire`
+(operators) skips the rest and the spacing; nothing skips the caps.
+`config.fires = "auto"` is on unless the world's `tiamat_weather:fires`
+option, chosen on the new-world screen, is off.
+
+**The turn.** Every `FIRE_TURN_TICKS = 10`, from the mod's one tick hook; if
+nothing is alight the turn returns at once. On a Spindle world the only
+standing cost is the lava sampler below, four columns every 20 ticks near
+one player; a plain world has no fuel, so not even that.
+Per blaze, in id order, with one `rng_stream` per blaze per turn from its
+origin and the tick:
+
+0. **Weather, once per blaze**, at the origin: the square's eased state if a
+   player's square holds it, else `controller.weather()` there. `wet` is the
+   intensity if the kind precipitates rain or snow, else 0. Also once per
+   blaze, `dryness = 0.6 − 1.2 × moisture` (clamped 0.1..1) and
+   `heat = 0.3 + 0.0007 × warmth` (clamped 0.3..1, halved where it is
+   freezing). Per fire these would be 120 noise reads a turn.
+1. **Verify** each fire with one `get_block`. A fire that was pushed and not
+   yet seen becomes `burning` when the fire block is there, and is forgotten
+   after `FIRE_CONFIRM_TICKS = 120` if it never is (the edit was refused or
+   clipped; 120 is longer than the queue's worst wait behind two refusals,
+   so an edit given up on does not land afterwards as an orphan). A burning
+   block that is not fire any more was dug or washed: gone. An unloaded
+   block (`get_block` answers nil) is left as it is until it would have
+   burnt out had anyone been watching, `burn + FIRE_CONFIRM_TICKS` after it
+   was lit, and then forgotten: a blaze whose chunk nobody comes back to
+   ends instead of holding a blaze slot, its block count and `FIRE_APART`
+   round its origin for ever — four of those and nothing could light
+   anywhere. The fire block left in the saved chunk is an orphan, and its
+   random tick clears it when the chunk is next loaded.
+2. **Burn out** at `burn` ticks: push the residue, and under a plant the
+   scorch.
+3. **Rain**, else: `wet > 0`, the sun at the fire at least
+   `FIRE_EXPOSED_SUN = 8` (a canopy dims it a little, a roof to 0, so a fire
+   under a roof or underground is never rained on), and one roll in
+   `FIRE_DOUSE = 600` permille scaled by `wet` puts it out. Snow douses like
+   rain.
+4. **Spread**, else, while the blaze is under its cap and younger than
+   `FIRE_BLAZE_TICKS` and the world is under `FIRE_MAX_BURNING`: one of the
+   26 neighbours per fire per turn (diagonals let a field fire jump a
+   one-block gap), inside the radius, not already alight, holding fuel, and
+   for a plant not standing on one of this mod's damp blocks (wet ground does
+   not carry a field fire). The odds are `FIRE_SPREAD = 500` permille ×
+   `catch` × `dryness` × `heat` × (1 − `wet`), integer where they can be.
+
+Edits go through the queue (5.2) in groups of at most `BATCH_CHUNKS` chunks,
+`queue.room()` asked before each. When there is no room the rest of the turn
+is not pushed and its state is not changed: a residue that could not be
+pushed is tried next turn, a spread that could not is not counted. A turn
+never pushes more than `FIRE_MAX_BURNING` edits.
+
+**Lightning lights it** (5.11). A bolt that lands on fuel lights it one
+strike in `FIRE_LIGHTNING_ODDS = 3`; one that lands on whole bare turf in
+`climate.scorch` leaves a scorch mark one strike in `STRIKE_SCORCH_ODDS = 2`.
+The mark is under the same switch as the fire: with the world's Wildfires
+option off, `scorch_mark` refuses too, and a bolt leaves the turf alone.
+
+**Lava lights it.** Flowing: `on_fluid_flow` names its fluid and the block
+it pressed on, so a hot fluid (`climate.hot_fluids`) against fuel lights it
+one flow in `FIRE_FLOW_ODDS = 2`. Still lava names nothing — `get_fluid` and
+`surface_at` answer a volume and a numeric id — so **still lava is told from
+water by its light**: the Spindle's lava emits (15, 8, 1), and a surface
+holding fluid whose `get_light` reads `r >= 14` and `b <= 3` is hot, as is a
+whole block in `climate.hot_blocks` (`magma`, `lava`) — unless one of this
+mod's own fires is within two blocks: the fire block emits (15, 9, 2), so a
+pond on the bank of a blaze would read as lava, and its fuel be lit "by
+lava" outside the spread rules and the rain. Every
+`FIRE_SAMPLE_TICKS = 20`, in the ground sampler's shape (5.3), the next
+player's footprint gets `FIRE_SAMPLE_COLUMNS = 4` columns, one `surface_at`
+each; a hot column's eight horizontal neighbours at the surface and the row
+above are read for fuel, and the first found lights one sample in
+`FIRE_LAVA_ODDS = 6`. A lava that does not glow is not found: a limit
+(10.14), not a rule.
+
+**What is left behind heals.** `scorched_ground` random-ticks back to
+`climate.bare` (the Spindle's `dirt`) one tick in `FIRE_HEAL_ODDS = 3`, or at
+once when it is raining there, and at load `climate.unlock_scorched()` asks
+the Spindle's `add_soil_alias` to treat it as dirt meanwhile, so its grass
+regrows over the patch. A fire block in no blaze — a restart that lost its
+storage, a block an operator placed — is an orphan, and its random tick puts
+it out. Random ticks are the safety net only: the engine keys them by
+material across every mod (section 1) and the Spindle already ticks its
+plants, so fire drives itself from this mod's tick and random-ticks only its
+own two blocks.
+
+**Persistence.** Blazes, their fires and the squares' rest are in this mod's
+storage, written every `FIRE_SAVE_TICKS = 100` while anything burns and read
+on the first turn after the clock is restored. A restart resumes a fire where
+it was; a blaze's keys go when it ends.
+
+**Fire hurts nobody.** That is Life's to do, and the ask is in
+`docs/exports-contract.md`.
 
 ### 5.9 Not buildable yet
 
@@ -1041,4 +1196,95 @@ lost that was not weather.
 For the day the mods were mid-rename the Spindle was asked for under both
 names. Every sibling mod has moved since, so that fallback is gone:
 `tiamat_default_world` is the only id asked for.
+
+### 10.14 Lightning lands, and fire (2026-09-23)
+
+The designer: "lets do lightning. Fire from lava. mini forest fires and
+field fires. (I dont want things getting out of control)". Built as 5.11
+and 5.12, all of it on calls that already existed; nothing here is an
+engine ask.
+
+- **Lightning lands** (5.11). `fx.lua`'s `strike` draws three points, finds
+  each column's top with `surface_at` and takes the highest, a block over
+  it; sparks at the point by day; the thunder's delay from the distance to
+  the player. The bolt lights fuel or scorches bare turf (5.12).
+  `fx.strike_at(x, z, square)` aims one for `/weather strike`, and
+  `fx.on_strike(fn)` tells listeners where one landed, which
+  `exports.on_lightning` wires for Life. Stats: `strikes_grounded`,
+  `ignitions`, `scorches`.
+- **Fire** (5.12): `fire.lua`, loaded after `ground` and before `fx`; three
+  blocks in `blocks.lua` (`fire`, `charred_log`, `scorched_ground`,
+  registered on every world); `fuel`, `scorch`, `hot_blocks`, `bare` and
+  `unlock_scorched` on both adapters. `config.fires = "auto"` is on unless
+  the world's `tiamat_weather:fires` option is off. It is a WORLD option, in
+  `mod.toml`, not a setting: whether a world burns is the world's, fixed
+  when it is made, and every VM answers it the same. The ready line says
+  `fires on` or `off`.
+- **`on_fluid_flow` goes through `hooks.lua`** as `wx.on_fluid_flow`, since
+  `ground.lua` and `fire.lua` both want it and the engine keeps one per mod.
+  `ground.lua` also lays no snow on a fire.
+- **Seen and heard.** A `fire` loop per blaze at the blaze's centre (id
+  `fire_<id>`; no colon, section 10), its gain rising with the count and
+  moved every turn; smoke drifting with the wind and embers from the
+  blaze's box every turn; a `douse` hiss when rain puts a block out, at most
+  one per blaze per turn; the loops re-issued to a player who joins. Smoke
+  and embers are world bursts and not gated on the particles setting, which
+  is about rain drawn round the camera, so they are kept small instead.
+- **Commands.** `/weather fires` (anyone) counts blazes and blocks and says
+  what lit them; `/weather fire [at x y z | out]` and `/weather strike`
+  (operators) light what you look at, or a block, put everything out, or
+  aim a bolt. `/weather stats` adds fire's counts.
+- **Exports**, additive, version 1: `fire_at`, `flammable`, `ignite`,
+  `extinguish`, `fires`, `on_lightning` (`exports-contract.md`).
+- **Textures and sounds** from `tools/`: `charred_log` and `scorched_ground`
+  are flat colours as the others are; `fire.png` is a shape, a flame whose
+  alpha is the silhouette, because a billboard alpha-tests. `fire.wav` is a
+  seamless crackle, `douse.wav` a hiss with a thud.
+
+**Checked by `tests/native`:**
+
+- a forest of oak lit by command spreads to at least ten blocks, never past
+  twelve of its origin or sixty in all, never over 120 in the world, leaves
+  charred logs and air, starts and stops its loop, smokes, and ends with
+  nothing alight
+- a field of tall grass burns within sixteen blocks, at most ninety, and
+  leaves scorched ground
+- a storm over a burning forest puts it out, with the hiss
+- in a wet climate (humidity 0.45) the same forest fizzles under fifteen
+  blocks
+- five canopies sixty blocks apart: four light, the fifth answers `cap`;
+  and four woods lit at once put more than one blaze's worth alight while
+  the world cap of 120 holds
+- a square lit by an export's `ignite` refuses another while it rests and
+  takes it again after (`FIRE_REST_TICKS`, a game day, shortened to a
+  minute in the rig); `/weather fire` is taken meanwhile; `fire_at` and
+  `flammable` answer
+- a restart mid-fire restores every block in the world from storage,
+  resumes it and burns it out, leaving no orphan
+- a blaze whose chunk is unloaded under it is edited no further and ends
+  by itself once its fires would have burnt out, freeing its slot; the
+  blocks left in the chunk are orphans for the random tick
+- a lone fire block in no blaze is put out by its random tick
+- with the world option off, lighting answers `off`, `/weather fires` says
+  so, the blocks are still registered, and five minutes of storm over bare
+  grass scorches nothing
+- under a forced storm every flash sits one block over the surface, sparks
+  are emitted, lightning lights the canopy, and over bare grass it
+  scorches; `/weather strike` flashes
+- magma beside tufts, still lava found by its glow, and a lava flow pressing
+  on a leaf each light it
+
+**Two limits**, both plainly limits and not rules:
+
+- **Fire hurts nobody.** A player can stand in it. Life keys its contact
+  fire and heat sources on material names, so the whole change on its side
+  is a row in each table and `tiamat_weather` in its `optional_depends`
+  (`exports-contract.md`). Weather does not name Life back: the direction
+  Life's thermometer wants is Life reading Weather, and a cycle is refused.
+- **A plain world has no fuel Weather knows.** The fuel table is the
+  adapter's, and the plain one is empty, so on any world but the Spindle
+  `ignite` answers `no fuel` to everything, lightning scorches nothing and
+  lava lights nothing. A way for another world mod to declare its fuel is
+  not built. And still lava is found by its light: a hot fluid that does not
+  glow is water to the sampler.
 

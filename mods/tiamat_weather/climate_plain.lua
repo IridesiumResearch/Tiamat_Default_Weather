@@ -67,4 +67,14 @@ M.puddle_ground = nil
 M.hot_fluids = {}
 M.damp = {}
 
+-- Nothing this mod knows of burns on a plain world, so fire there exists
+-- only when another mod's export lights something it also registered.
+M.fuel = {}
+M.scorch = {}
+M.hot_blocks = {}
+M.bare = nil
+function M.unlock_scorched()
+    return false
+end
+
 return M

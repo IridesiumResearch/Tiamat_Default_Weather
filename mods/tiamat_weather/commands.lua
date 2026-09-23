@@ -9,9 +9,15 @@
 --   /weather mega                     the next mega storms to pass over you
 --   /weather drift                    compare the mirrored humidity with the ground
 --   /weather stats                    the sampler's and queue's counts, to the log
+--   /weather fires                    what is burning, world-wide, and how it started
+--   /weather fire                     set alight what you are looking at
+--   /weather fire at <x> <y> <z>      set alight the block at those coordinates
+--   /weather fire out                 put every fire out
+--   /weather strike                   a bolt where you are looking, or just ahead
 --
--- `set` and `clear` are for operators (`config.commands`), by the server's
--- own list.
+-- `set`, `clear`, `fire` and `strike` are for operators (`config.commands`),
+-- by the server's own list. The fire replies are asserted word for word by
+-- the native checks (tests/native), so change them there too.
 
 local config = wx.config
 local climate = wx.climate
@@ -23,6 +29,8 @@ local SET_INTENSITY = { rain = 700, storm = 1000, snow = 700, blizzard = 1000, a
     ash_storm = 1000, dust = 900, cloudy = 0, clear = 0 }
 local FORECAST_MINUTES = 10
 local FORECAST_STEP_TICKS = 1200     -- one line a minute
+local STRIKE_AHEAD = 6               -- blocks along the facing /weather strike aims when nothing is looked at
+local FIRE_USAGE = "usage: /weather fire [at <x> <y> <z> | out]"
 
 local function here(player)
     local pos = controller.position(player)
@@ -244,6 +252,119 @@ local function clouds(player)
             config.CLOUD_MAP_SIZE * config.CLOUD_MAP_SIZE) or "no cover map on this engine")
 end
 
+-- ------------------------------------------------------------ fire
+
+-- What is burning, for anyone: the live counts from fire.lua and its
+-- lifetime figures. A world that switched fires off says so instead, since
+-- every number would be zero and the zeros would read as "nothing yet".
+local function fires()
+    if not wx.fire.enabled then
+        return "fires are switched off in this world"
+    end
+    local s = wx.fire.stats
+    return string.format(
+        "%d blazes alight, %d blocks burning; lit %d, spread %d, burnt %d, doused %d, scorched %d; by lightning %d, by lava %d",
+        #wx.fire.blazes(), wx.fire.count(), s.ignited, s.spread, s.burnt, s.doused, s.scorched, s.lightning, s.lava)
+end
+
+-- A whole number from a command word, or nil: block coordinates are
+-- integers, and "3.5" is a mistake rather than a block.
+local function integer_arg(word)
+    local n = tonumber(word)
+    if n == nil then
+        return nil
+    end
+    return math.tointeger(n)
+end
+
+-- The block under a player's crosshair, or nil. `looking_at` answers CELLS,
+-- three to a block, and `//` floors, so a negative coordinate lands in the
+-- right block too.
+local function looked_at(player)
+    local at = game.looking_at(player)
+    if at == nil then
+        return nil
+    end
+    return { x = at.x // 3, y = at.y // 3, z = at.z // 3 }
+end
+
+local function light(block)
+    local ok, why = wx.fire.ignite(block, "command", { force = true })
+    if ok then
+        return string.format("lit at %d,%d,%d", block.x, block.y, block.z)
+    end
+    return string.format("nothing lit at %d,%d,%d: %s", block.x, block.y, block.z, tostring(why))
+end
+
+-- `force` skips the square's rest and the spacing between blazes, which are
+-- rules about NATURAL fire; the caps still hold, because an operator who
+-- lights a fifth blaze has found the cap, not a way round it.
+local function fire(player, args)
+    local no = refused(player)
+    if no then
+        return no
+    end
+    local what = args[2] and string.lower(args[2])
+    if what == nil then
+        local block = looked_at(player)
+        if block == nil then
+            return "look at something to set it alight"
+        end
+        return light(block)
+    elseif what == "at" then
+        local x, y, z = integer_arg(args[3]), integer_arg(args[4]), integer_arg(args[5])
+        if x == nil or y == nil or z == nil then
+            return FIRE_USAGE
+        end
+        return light({ x = x, y = y, z = z })
+    elseif what == "out" then
+        return string.format("%d burning blocks put out", wx.fire.extinguish_all())
+    end
+    return FIRE_USAGE
+end
+
+-- A bolt on demand: at the column under the crosshair, or, looking at
+-- nothing, STRIKE_AHEAD blocks along the facing. `facing` is the engine's
+-- unit vector, so the arithmetic is a multiply and a floor, no trig. The
+-- thunder's gain and the mega odds come from the player's own square when it
+-- has been evaluated; a fresh square gets a full storm's, which is what an
+-- operator testing lightning wants to hear.
+local function strike(player)
+    local no = refused(player)
+    if no then
+        return no
+    end
+    local body = game.player_entity(player)
+    local me = body and game.entity(body)
+    if me == nil then
+        return "you are not anywhere the weather can find"
+    end
+    if game.world_seed == nil then
+        return "the world is not open yet"
+    end
+    local pos = me.pos
+    local x, z
+    local block = looked_at(player)
+    if block then
+        x, z = block.x, block.z
+    else
+        -- A body that reports no facing (an engine older than the field, or
+        -- a test rig's) gets the bolt on its own column.
+        local facing = me.facing or { x = 0, z = 0 }
+        x = math.floor(pos.x + facing.x * STRIKE_AHEAD)
+        z = math.floor(pos.z + facing.z * STRIKE_AHEAD)
+    end
+    local cx, cz = controller.square_of(pos.x, pos.z)
+    local square = controller.squares[controller.key_of(cx, cz)]
+    if not (square and square.kind and square.rep) then
+        square = { rep = pos, intensity = 1000, mega = 0, cx = cx, cz = cz }
+    end
+    wx.fx.strike_at(x, z, square)
+    return string.format("a bolt at %d,%d", x, z)
+end
+
+-- ------------------------------------------------------------ stats
+
 local function stats()
     local parts = {}
     local function add(name, t)
@@ -255,6 +376,7 @@ local function stats()
     add("ground", wx.ground.stats)
     add("queue", wx.queue.stats)
     add("fx", wx.fx.stats)
+    add("fire", wx.fire.stats)
     game.log("tiamat_weather stats: " .. table.concat(parts, " ") .. " waiting=" .. wx.queue.waiting())
     return "the weather's figures are in the server log"
 end
@@ -277,8 +399,14 @@ wx.on_command("weather", function(player, args)
         return clouds(player)
     elseif sub == "stats" then
         return stats()
+    elseif sub == "fires" then
+        return fires()
+    elseif sub == "fire" then
+        return fire(player, args)
+    elseif sub == "strike" then
+        return strike(player)
     end
-    return "usage: /weather [set <kind> [minutes] | clear | forecast | mega | drift | clouds | stats]"
+    return "usage: /weather [set <kind> [minutes] | clear | forecast | mega | drift | clouds | stats | fires | fire [at x y z | out] | strike]"
 end)
 
 -- The drift check once per session, when the first player has joined and

@@ -11,7 +11,8 @@
 -- Weather is a FUNCTION the server evaluates at a handful of points
 -- (controller.lua); everything a player sees or hears is presentation sent
 -- from those points (fx.lua, hud.lua), and the only world state it writes is
--- the ground (ground.lua), through a paced queue (queue.lua).
+-- the ground (ground.lua) and fire (fire.lua), through a paced queue
+-- (queue.lua).
 
 wx = {}
 
@@ -36,15 +37,17 @@ if type(wx_overrides) == "table" then
 end
 load("hooks")                    -- one tick, one chat, one join and one leave hook; many subscribers
 wx.climate = load("climate")     -- picks the Spindle or the plain adapter
-wx.blocks = load("blocks")       -- snow_layer, and the damp blocks when the Spindle is here
+wx.blocks = load("blocks")       -- snow_layer, rainwater, fire and its leavings, and the damp blocks when the Spindle is here
 wx.controller = load("controller")
 wx.queue = load("queue")
 wx.ground = load("ground")
+wx.fire = load("fire")           -- blazes: lit by lightning, lava, a command or an export; capped; rained out
 wx.fx = load("fx")
 wx.commands = load("commands")
 load("exports")                  -- what other mods may read: game.exports("tiamat_weather")
 
 game.register_hud_script("hud.lua")
 
-game.log(string.format("tiamat_weather ready: climate %s, damp ground %s, puddles %s",
-    wx.climate.name, wx.config.damp_ground and "on" or "off", wx.config.puddles and "on" or "off"))
+game.log(string.format("tiamat_weather ready: climate %s, damp ground %s, puddles %s, fires %s",
+    wx.climate.name, wx.config.damp_ground and "on" or "off", wx.config.puddles and "on" or "off",
+    wx.fire.enabled and "on" or "off"))

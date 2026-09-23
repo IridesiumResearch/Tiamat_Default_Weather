@@ -18,6 +18,23 @@
 --   warmth(x, y, z)             integer 0..1000
 --   freezing(x, y, z)           boolean
 --
+-- Fire (2026-09-23; the version stays 1, since nothing above changed):
+--
+--   fire_at(x, y, z)            boolean: is the block there alight
+--   flammable(x, y, z)          boolean: could it be (fuel fire.lua knows, holding no fluid)
+--   ignite(x, y, z)             boolean: light it, by the NATURAL rules — the caps,
+--                               the square's rest and the spacing between blazes
+--                               all apply, but no odds are rolled
+--   extinguish(x, y, z)         boolean: put that one block out
+--   fires()                     blocks alight, blazes alight
+--   on_lightning(fn)            boolean: `fn(x, y, z)` after every bolt, grounded or
+--                               not, at the block the flash was centred on: the
+--                               ground + 1, or STRIKE_ABOVE over the player when no
+--                               column under the bolt answered (a point in the air)
+--
+-- Coordinates are world blocks and are floored, so an entity's position may
+-- be passed as it is.
+--
 -- **The fault rules, from this side.** A function called through an export
 -- runs in THIS mod's sandbox, so an error in one would disable weather for
 -- the session, and the caller would get nil. So every function here checks
@@ -60,6 +77,12 @@ end
 
 local function coords(x, y, z)
     return is_number(x) and is_number(y) and is_number(z)
+end
+
+-- The block a point is in. Callers pass whatever they have — an entity's
+-- feet, a dig event's cell already divided — and fire.lua wants integers.
+local function block_of(x, y, z)
+    return { x = math.floor(x), y = math.floor(y), z = math.floor(z) }
 end
 
 -- The weather a player standing at (x, y, z) sees: the eased state of that
@@ -135,6 +158,54 @@ game.export{
             return nil
         end
         return climate.freezing(x, y, z)
+    end),
+
+    -- Fire. Every answer is a plain boolean or a pair of counts; the WHY of a
+    -- refusal stays on our side, because a reader that branched on the
+    -- reason strings would be coupled to fire.lua's wording.
+    fire_at = guarded("fire_at", function(x, y, z)
+        if not coords(x, y, z) then
+            return nil
+        end
+        return wx.fire.burning_at(block_of(x, y, z)) == true
+    end),
+
+    flammable = guarded("flammable", function(x, y, z)
+        if not coords(x, y, z) then
+            return nil
+        end
+        return wx.fire.fuel_at(block_of(x, y, z)) ~= nil
+    end),
+
+    ignite = guarded("ignite", function(x, y, z)
+        if not coords(x, y, z) then
+            return nil
+        end
+        local ok = wx.fire.ignite(block_of(x, y, z), "export")
+        return ok == true
+    end),
+
+    extinguish = guarded("extinguish", function(x, y, z)
+        if not coords(x, y, z) then
+            return nil
+        end
+        return wx.fire.extinguish(block_of(x, y, z)) == true
+    end),
+
+    fires = guarded("fires", function()
+        return wx.fire.count(), #wx.fire.blazes()
+    end),
+
+    -- The callback runs in the CALLER's sandbox when fx.lua calls it, so a
+    -- fault in it lands on them and never on the storm (fx pcalls its side
+    -- too). Nothing is unregistered: a mod that is disabled stops answering
+    -- by the engine's own rule.
+    on_lightning = guarded("on_lightning", function(fn)
+        if type(fn) ~= "function" then
+            return false
+        end
+        wx.fx.on_strike(fn)
+        return true
     end),
 }
 

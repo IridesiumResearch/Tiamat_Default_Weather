@@ -3,12 +3,12 @@
 -- One of each engine hook for the whole mod, with subscribers.
 --
 -- The engine keeps ONE callback per hook per mod, so every file that wants a
--- tick, a chat line, a join or a leave subscribes here, and this file holds
--- the engine's one registration of each. The same shape as the Spindle's
+-- tick, a chat line, a join, a leave or a blocked fluid flow subscribes here,
+-- and this file holds the engine's one registration of each. The same shape as the Spindle's
 -- hooks.lua, and for the same reason: a second registration from another
 -- file would quietly stop the first one running.
 
-local ticks, joins, leaves = {}, {}, {}
+local ticks, joins, leaves, flows = {}, {}, {}, {}
 local commands = {}
 
 -- The world's clock, in ticks, counted from `dt_ticks`. controller.lua
@@ -26,6 +26,14 @@ function wx.on_join(fn)
 end
 function wx.on_leave(fn)
     leaves[#leaves + 1] = fn
+end
+
+-- Runs `fn(event)` for every fluid flow the engine reports BLOCKED (a
+-- Tiamat.FluidFlowEvent). ground.lua hears rainwater meeting another fluid
+-- here and fire.lua hears lava pressing on fuel; two direct registrations
+-- would have been a load error.
+function wx.on_fluid_flow(fn)
+    flows[#flows + 1] = fn
 end
 
 -- A chat COMMAND, `/name args...`. `fn(player, args)` returns what to tell the
@@ -60,6 +68,10 @@ end)
 
 game.register_on_player_leave(function(event)
     run(leaves, "leave", event.player, event.name)
+end)
+
+game.register_on_fluid_flow(function(event)
+    run(flows, "fluid flow", event)
 end)
 
 -- A line that starts with `/` and names one of this mod's commands runs it.

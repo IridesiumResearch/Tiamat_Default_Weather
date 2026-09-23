@@ -79,7 +79,7 @@ return {
 
     EASE_TICKS = 80,            -- how long a client takes to ease rain, sky and loops in
     STRIKE_REACH = 96,          -- blocks from the player a bolt may strike
-    STRIKE_ABOVE = 40,          -- blocks over the player the flash is centred
+    STRIKE_ABOVE = 40,          -- blocks over the player a bolt is centred when no ground is found under it
     STRIKE_SEEN = 512,          -- blocks the flash is seen from
     STRIKE_HEARD = 400,         -- blocks the thunder is heard from
     -- The cloud deck (register_clouds), shaped after docs/reference/.
@@ -125,4 +125,42 @@ return {
     STORM_PUDDLE_CELLS = 6,     -- and in a STORM
     MEGA_PUDDLE_CELLS = 12,     -- and in a mega storm
     RAIN_EVAPORATES = 300,      -- one cell in this many fluid ticks (10 Hz): 3 cells in the open last about 90 s
+
+    -- ---------------------------------------------------------- fire
+    -- Plan 5.12. "Not out of control" is the first requirement, so every
+    -- number below is a cap before it is a flavour.
+
+    -- "auto": on unless the world option tiamat_weather:fires is off;
+    -- true/false forces. A WORLD option, never a player setting: a fire is
+    -- world state, and a world whose fires depended on who was logged in
+    -- would disagree with itself.
+    fires = "auto",
+    FIRE_TURN_TICKS = 10,        -- ticks between turns of every burning block (half a second)
+    FIRE_MAX_BLAZES = 4,         -- blazes alight at once, world-wide
+    FIRE_MAX_BURNING = 120,      -- burning blocks at once, world-wide; nothing lights past it
+    FIRE_FOREST_BLOCKS = 60,     -- blocks one forest blaze may light in its life
+    FIRE_FOREST_RADIUS = 12,     -- and how far (horizontally) from where it started
+    FIRE_FIELD_BLOCKS = 90,      -- a field fire spreads wider and leaves less
+    FIRE_FIELD_RADIUS = 16,
+    FIRE_BLAZE_TICKS = 3600,     -- a blaze spreads for at most three minutes, then only burns down
+    FIRE_SPREAD = 500,           -- permille: base odds per turn that a burning block lights a neighbour
+    FIRE_DOUSE = 600,            -- permille per turn, at full rain, that a fire under the sky goes out
+    FIRE_EXPOSED_SUN = 8,        -- sun at the fire at least this and the rain reaches it (a canopy dims it a little, a roof to 0)
+    FIRE_REST_TICKS = 24000,     -- a square that had a blaze starts no NATURAL one for this long (a game day)
+    FIRE_APART = 48,             -- a natural blaze starts no nearer than this to a live one's origin
+    FIRE_LIGHTNING_ODDS = 3,     -- one strike in this many that lands on fuel lights it
+    FIRE_LAVA_ODDS = 6,          -- one sampled hot surface in this many lights the fuel beside it
+    FIRE_FLOW_ODDS = 2,          -- one lava flow pressing on fuel in this many lights it
+    FIRE_SAMPLE_TICKS = 20,      -- ticks between hot-ground samples near a player
+    FIRE_SAMPLE_COLUMNS = 4,     -- columns per sample
+    -- An edit not seen in the world after this is given up. Longer than the
+    -- queue's worst wait — two BACKOFF_TICKS behind two refusals, MAX_WAITING
+    -- batches at QUEUE_EVERY, and a turn to notice — because a fire edit
+    -- given up on that then lands is an orphan block nothing spreads from
+    -- and nothing but its random tick clears. Retune the queue, retune this.
+    FIRE_CONFIRM_TICKS = 120,
+    FIRE_SAVE_TICKS = 100,       -- ticks between writes of the fire state to storage while anything burns
+    FIRE_HEAL_ODDS = 3,          -- one random tick in this many turns scorched ground bare again
+    STRIKE_CANDIDATES = 3,       -- ground points tried per strike; the highest is hit
+    STRIKE_SCORCH_ODDS = 2,      -- one strike in this many on bare turf leaves a scorch mark
 }

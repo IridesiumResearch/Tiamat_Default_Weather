@@ -131,6 +131,11 @@ local function column(x, z, feet_y, square, tick, rng)
         M.stats.wet = M.stats.wet + 1
         return
     end
+    if top.material == blocks.fire_id then
+        -- A burning block (fire.lua) is nobody's ground: no snow settles on
+        -- a fire, no puddle forms in one, and it is not turf to dampen.
+        return
+    end
     local surface, y = { material = top.material, occupancy = top.occupancy }, top.y
     local open = { x = x, y = y + 1, z = z }
     if game.get_light(open).sun ~= 15 then
@@ -276,6 +281,7 @@ end)
 --
 -- Registered whether or not puddles are on, so puddles left from a session
 -- that had them still drain into rivers rather than lying against them.
+-- Through hooks.lua, since fire.lua listens to the same engine hook.
 local RAINWATER = blocks.RAINWATER
 local STEAM = { r = 0.92, g = 0.94, b = 0.96, a = 0.5 }
 
@@ -293,7 +299,7 @@ local function let_go(position, other, toward)
     end
 end
 
-game.register_on_fluid_flow(function(event)
+wx.on_fluid_flow(function(event)
     local meets = event.meets
     if meets == nil then
         return

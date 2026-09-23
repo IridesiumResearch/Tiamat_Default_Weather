@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 --
--- This mod's materials: fresh snow, and the damp versions of the Spindle's
--- dirt and sand.
+-- This mod's materials: fresh snow, rainwater, fire and what fire leaves,
+-- and the damp versions of the Spindle's dirt and sand.
 --
 -- **Fresh snow is its own material, never the Spindle's snow.** A layer
 -- that became `tiamat_default_world:snow` would belong to rules that only
@@ -83,6 +83,61 @@ game.register_fluid{
     -- not a shower's.
     washes = false,
 }
+
+-- Fire, and what it leaves (plan 5.12). Registered on every world, fuel or
+-- no fuel: a world that had fires and turned them off still has to know
+-- what its charred trunks are, and another mod's export may light something
+-- on a plain world one day.
+--
+-- **Fire is a plant, as far as the engine knows.** A billboard cross, so it
+-- reads as flames rather than a glowing cube; `passable`, so a body walks
+-- through it (it hurts nobody until Life takes the contact-fire ask, see
+-- docs/exports-contract.md); `sway`, so it flickers; `washes_away`, so a
+-- flood or a bucket puts it out without fire.lua having to hear about it;
+-- and `drops = {}`, so digging one yields nothing. fire.lua decides when it
+-- is placed and when it goes, and the fire's own random tick only clears a
+-- block fire.lua has never heard of.
+M.FIRE = "tiamat_weather:fire"
+game.register_block{
+    id = "fire",
+    name = "Fire",
+    description = "Something is burning. Rain puts it out.",
+    hardness = 0.05,
+    billboard = "cross",
+    passable = true,
+    sway = true,
+    washes_away = true,
+    light_emit = { r = 15, g = 9, b = 2 },
+    textures = { all = "textures/fire.png" },
+    drops = {},
+}
+M.fire_id = game.get_block_id(M.FIRE)
+
+-- A trunk burns to this, so a burnt wood is standing black trunks.
+M.CHARRED = "tiamat_weather:charred_log"
+game.register_block{
+    id = "charred_log",
+    name = "Charred wood",
+    description = "What is left of a trunk after a fire.",
+    hardness = 0.6,
+    textures = { all = "textures/charred_log.png" },
+    tint = { strength = 0.08, scale = 64 },
+}
+M.charred_id = game.get_block_id(M.CHARRED)
+
+-- Turf a plant fire went over. fire.lua asks the Spindle to treat it as
+-- dirt (`add_soil_alias`, once this block exists), so its grass grows back
+-- over it, and its own random tick heals it to bare ground as well.
+M.SCORCHED = "tiamat_weather:scorched_ground"
+game.register_block{
+    id = "scorched_ground",
+    name = "Scorched ground",
+    description = "Turf a fire went over. It heals.",
+    hardness = 0.5,
+    textures = { all = "textures/scorched_ground.png" },
+    tint = { strength = 0.2, scale = 96 },
+}
+M.scorched_id = game.get_block_id(M.SCORCHED)
 
 -- The damp blocks exist only beside the Spindle, whose blocks they stand in
 -- for. Hardness and tint are copied by hand from its blocks.lua (MIRRORS).

@@ -21,7 +21,20 @@
 --   set_clouds         how much of it a player is under, how grey, and where
 --                      its floor is (following the Spindle's dome)
 --
--- Nothing here emits particles any more.
+-- **Lightning lands** (2026-09-23). A bolt used to be a flash forty blocks
+-- over the player at a random offset that touched nothing. It now finds the
+-- ground under the highest of a few candidate columns (`surface_at`, one call
+-- a column), flashes a block over it, throws sparks there, tells anyone who
+-- asked (`M.on_strike`), and hands the ground to fire.lua: fuel may catch,
+-- bare turf may be scorched. The odds of a strike at all are unchanged.
+--
+-- **Fire is seen and heard from here**, and only from here: fire.lua owns
+-- the state and says what changed through `wx.fire.on_change`; this file
+-- turns that into a crackle loop per blaze, smoke and embers over it every
+-- turn, and a hiss when rain puts a block out. Bursts are the only particles
+-- this file emits: rain is still the client's own emitter. Smoke and embers
+-- are world bursts near a place, not rain round a camera, so the particles
+-- setting does not gate them; they are kept small instead.
 
 local config = wx.config
 local climate = wx.climate
@@ -30,6 +43,7 @@ local controller = wx.controller
 local M = {}
 
 local TICKS_PER_SECOND = 20
+local Y_WRAP = 1 << 30          -- rng_stream takes y as a 32-bit integer
 
 -- ------------------------------------------------------------ the tables
 
@@ -93,6 +107,11 @@ end
 game.register_sound{ id = "rain", file = "sounds/rain.wav", gain = 0.8 }
 game.register_sound{ id = "wind", file = "sounds/wind.wav", gain = 0.7 }
 game.register_sound{ id = "thunder", file = "sounds/thunder.wav", gain = 1.0, pitch_variance = 0.15 }
+-- A blaze's crackle is a LOOP (its loudness follows how much is alight), and
+-- a douse is a one-shot hiss. A missing file disables that one sound and
+-- nothing else, so a server without the WAVs still has its fire.
+game.register_sound{ id = "fire", file = "sounds/fire.wav", gain = 0.9 }
+game.register_sound{ id = "douse", file = "sounds/douse.wav", gain = 0.7, pitch_variance = 0.1 }
 
 -- Options index from zero: 2 is "full".
 game.register_setting{
@@ -105,7 +124,13 @@ game.register_setting{
 local SETTING = "tiamat_weather:particles"
 local SHARE = { off = 0, low = 1, full = 2 }
 
-M.stats = { precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0 }
+M.stats = {
+    precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0,
+    -- Lightning that found ground, and what it did there.
+    strikes_grounded = 0, ignitions = 0, scorches = 0,
+    -- Fire, presented.
+    fire_loops = 0, smoke = 0,
+}
 
 -- ------------------------------------------------------------ one player's weather
 
@@ -248,18 +273,57 @@ end
 local BLOCKS_PER_TICK = 19
 local pending = {}
 
-local function strike(square, tick)
-    local rng = game.rng_stream({ x = square.cx, y = tick % (1 << 30), z = square.cz,
-        seed = game.world_seed }, "wx_thunder")
-    local up = mega_of(square)
-    local odds = math.floor(config.THUNDER_ODDS + (config.MEGA_THUNDER_ODDS - config.THUNDER_ODDS) * up + 0.5)
-    if rng:below(math.max(1, odds)) ~= 0 then
-        return
+-- Where the ground under a bolt is looked for: from this far over the
+-- player's feet, this far down. A canopy or a tower stands well over the
+-- player; a valley floor lies well under a player on its rim.
+local STRIKE_SCAN_ABOVE = 64
+local STRIKE_SCAN = 128
+-- Sparks at the point of impact: what shows a strike by day, when the flash
+-- does not (the renderer caps the sun at daylight).
+local SPARKS = { count = 24, colour = { r = 1, g = 0.95, b = 0.7, a = 0.9 }, size = 0.12,
+    lifetime = 0.6, rise = 6, spread = 5, gravity = 12, seen = 128 }
+
+-- Who wants to know where a bolt landed: `fn(x, y, z)`, the block the flash
+-- was centred on. exports.lua hands this to other mods as `on_lightning`,
+-- which is how Survival can hurt whoever stands beside a strike. Each runs
+-- under a pcall: a listener's failure is logged once and never stops the
+-- storm. (A function another mod passed in runs in ITS sandbox, so its
+-- error lands on it and answers nil here; the pcall is for our own side.)
+local listeners = {}
+
+function M.on_strike(fn)
+    listeners[#listeners + 1] = { fn = fn, failed = false }
+end
+
+local function tell_listeners(x, y, z)
+    for _, l in ipairs(listeners) do
+        local ok, err = pcall(l.fn, x, y, z)
+        if not ok and not l.failed then
+            l.failed = true
+            game.log("tiamat_weather: a lightning listener failed: " .. tostring(err))
+        end
     end
+end
+
+-- One bolt at column (x, z), from the square's storm. `top` is the ground
+-- there as `surface_at` answered it: nil to look it up here, false when the
+-- caller already looked and found nothing, in which case the flash goes
+-- where it always went — STRIKE_ABOVE over the player — and touches nothing.
+-- `rng` carries on the caller's stream, so the odds below stay on the one
+-- deterministic draw per strike.
+local function bolt(square, tick, x, z, rng, top)
     local rep = square.rep
-    local dx = rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
-    local dz = rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
-    local at = { x = rep.x + dx, y = rep.y + config.STRIKE_ABOVE, z = rep.z + dz }
+    local up = mega_of(square)
+    if top == nil then
+        top = game.surface_at{ x = x, z = z, from = math.floor(rep.y) + STRIKE_SCAN_ABOVE, depth = STRIKE_SCAN }
+    end
+    local at
+    if top then
+        at = { x = x, y = top.y + 1, z = z }
+        M.stats.strikes_grounded = M.stats.strikes_grounded + 1
+    else
+        at = { x = x, y = math.floor(rep.y) + config.STRIKE_ABOVE, z = z }
+    end
     game.flash{
         pos = at,
         radius = config.STRIKE_SEEN,
@@ -270,9 +334,83 @@ local function strike(square, tick)
     }
     M.stats.flashes = M.stats.flashes + 1
     -- Thunder, once the sound has had time to travel from there to here.
-    local far = math.max(math.abs(dx), math.abs(dz))
+    local far = math.max(math.abs(x - math.floor(rep.x)), math.abs(z - math.floor(rep.z)))
     pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
         gain = 0.5 + square.intensity / 2000 + 0.5 * up }
+    if top then
+        game.emit_particles{
+            pos = { x = x + 0.5, y = top.y + 1.2, z = z + 0.5 },
+            count = SPARKS.count,
+            colour = SPARKS.colour,
+            size = SPARKS.size,
+            lifetime = SPARKS.lifetime,
+            velocity = { y = SPARKS.rise },
+            spread = SPARKS.spread,
+            gravity = SPARKS.gravity,
+            collide = true,
+            radius = SPARKS.seen,
+        }
+        -- What the bolt did to the ground it hit. Fuel may catch, on the
+        -- lightning odds (fire.lua rolls no odds of its own: the caller
+        -- knows what kind of spark this is). Bare turf that is not fuel may
+        -- be scorched instead — only while fires are on: `scorch_mark`
+        -- refuses otherwise, since a world that turned wildfires off wants
+        -- its ground left alone. Neither is a fire's business to refuse
+        -- loudly, so a false from either is simply a bolt that left nothing.
+        local ground = { x = x, y = top.y, z = z }
+        if wx.fire.enabled and wx.fire.fuel_at(ground) then
+            if rng:below(math.max(1, config.FIRE_LIGHTNING_ODDS)) == 0
+                and wx.fire.ignite(ground, "lightning") then
+                M.stats.ignitions = M.stats.ignitions + 1
+            end
+        elseif top.occupancy == game.OCCUPANCY_FULL and climate.scorch[top.material] then
+            if rng:below(math.max(1, config.STRIKE_SCORCH_ODDS)) == 0
+                and wx.fire.scorch_mark(ground) then
+                M.stats.scorches = M.stats.scorches + 1
+            end
+        end
+    end
+    tell_listeners(at.x, at.y, at.z)
+end
+
+-- A storm's own strike: one in THUNDER_ODDS evaluations, and then the
+-- highest ground under STRIKE_CANDIDATES columns within STRIKE_REACH of the
+-- square's representative — lightning finds the tallest thing. One
+-- `surface_at` a candidate, which is the whole cost of landing it.
+local function strike(square, tick)
+    local rng = game.rng_stream({ x = square.cx, y = tick % Y_WRAP, z = square.cz,
+        seed = game.world_seed }, "wx_thunder")
+    local up = mega_of(square)
+    local odds = math.floor(config.THUNDER_ODDS + (config.MEGA_THUNDER_ODDS - config.THUNDER_ODDS) * up + 0.5)
+    if rng:below(math.max(1, odds)) ~= 0 then
+        return
+    end
+    local rep = square.rep
+    local rx, rz = math.floor(rep.x), math.floor(rep.z)
+    local from = math.floor(rep.y) + STRIKE_SCAN_ABOVE
+    local best, bx, bz = nil, nil, nil
+    for _ = 1, config.STRIKE_CANDIDATES do
+        local x = rx + rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
+        local z = rz + rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
+        if bx == nil then
+            -- The first candidate is where the bolt goes if no column answers.
+            bx, bz = x, z
+        end
+        local top = game.surface_at{ x = x, z = z, from = from, depth = STRIKE_SCAN }
+        if top and (best == nil or top.y > best.y) then
+            best, bx, bz = top, x, z
+        end
+    end
+    bolt(square, tick, bx, bz, rng, best or false)
+end
+
+-- A bolt aimed at a column, for /weather strike. `square` is the caller's:
+-- any table with `rep`, `intensity` and `mega` serves, since those are all
+-- the thunder's gain and the mega odds read.
+function M.strike_at(x, z, square)
+    x, z = math.floor(x), math.floor(z)
+    local rng = game.rng_stream({ x = x, y = wx.now % Y_WRAP, z = z, seed = game.world_seed }, "wx_thunder")
+    bolt(square, wx.now, x, z, rng, nil)
 end
 
 local function thunder(tick)
@@ -290,6 +428,140 @@ local function thunder(tick)
     end
     pending = keep
 end
+
+-- ------------------------------------------------------------ fire, seen and heard
+
+-- fire.lua keeps the state; what a blaze looks and sounds like is decided
+-- here, from its events and from `wx.fire.blazes()` once a turn. One crackle
+-- loop per blaze, at the middle of what it has burnt, its gain following how
+-- much is alight (a running loop MOVES, so nudging it every turn is one
+-- message and no restart); smoke rising from the top of it, leaning with
+-- the wind; embers falling back; and a hiss when rain puts a block out, at
+-- most one a blaze a turn so a downpour is not a hundred hisses at once.
+--
+-- The loop id is `fire_<id>`: an id holding a `:` is read as a namespace
+-- and refused (plan 10).
+local FIRE_HEARD = 48                -- blocks a blaze's crackle carries
+local FIRE_GAIN_LOW = 0.3            -- one block alight
+local FIRE_GAIN_FULL_AT = 24         -- this many alight is as loud as it gets
+local FIRE_LOOP_FADE = 40            -- ticks a nudge of the loop takes
+local FIRE_LOOP_OUT = 60             -- ticks the crackle takes to die with the blaze
+local DOUSE = { heard = 24, gain = 0.6 }
+local SMOKE = { colour = { r = 0.25, g = 0.24, b = 0.23, a = 0.55 }, size = 1.4, lifetime = 7,
+    rise = 1.4, lean = 0.8, spread = 0.5, gravity = -0.25, seen = 128 }
+local EMBERS = { colour = { r = 1, g = 0.55, b = 0.15, a = 0.9 }, size = 0.1, lifetime = 1.2,
+    rise = 2.5, spread = 2, gravity = 3, seen = 96 }
+
+local function loop_id(blaze)
+    return "fire_" .. blaze.id
+end
+
+-- Where a blaze is, for the ear: the middle of the box its fires have
+-- reached, and the top of it for the smoke. A record straight from a
+-- `blaze_start` event has no box yet and may carry its origin as
+-- `ox, oy, oz` (fire.lua's own record) or `x, y, z` (a `blazes()` copy), so
+-- both are read and the origin stands in for the box.
+local function centre_of(blaze)
+    local lo, hi = blaze.min, blaze.max
+    if lo == nil or hi == nil then
+        local x, y, z = blaze.ox or blaze.x, blaze.oy or blaze.y, blaze.oz or blaze.z
+        return x, y, z, y + 1, 0, 0
+    end
+    return (lo.x + hi.x) / 2, (lo.y + hi.y) / 2, (lo.z + hi.z) / 2, hi.y + 1,
+        math.max(1, (hi.x - lo.x) / 2), math.max(1, (hi.z - lo.z) / 2)
+end
+
+local function fire_loop(blaze, count)
+    local cx, cy, cz = centre_of(blaze)
+    game.play_loop{
+        id = loop_id(blaze),
+        sound = "fire",
+        pos = { x = cx + 0.5, y = cy + 0.5, z = cz + 0.5 },
+        radius = FIRE_HEARD,
+        gain = FIRE_GAIN_LOW + (1 - FIRE_GAIN_LOW) * math.min(1, count / FIRE_GAIN_FULL_AT),
+        fade_ticks = FIRE_LOOP_FADE,
+    }
+    M.stats.fire_loops = M.stats.fire_loops + 1
+end
+
+-- Smoke and embers over one blaze, from what it holds this turn.
+local function fire_seen(blaze, tick)
+    local cx, _, cz, top, half_x, half_z = centre_of(blaze)
+    local count = blaze.count or 0
+    local wind = climate.wind(cx, cz, tick)
+    local pos = { x = cx + 0.5, y = top + 0.5, z = cz + 0.5 }
+    local area = { x = half_x, y = 1, z = half_z }
+    game.emit_particles{
+        pos = pos,
+        count = math.min(32, 6 + count),
+        colour = SMOKE.colour,
+        size = SMOKE.size,
+        lifetime = SMOKE.lifetime,
+        velocity = { x = wind.x * SMOKE.lean, y = SMOKE.rise, z = wind.z * SMOKE.lean },
+        spread = SMOKE.spread,
+        area = area,
+        gravity = SMOKE.gravity,
+        collide = false,
+        radius = SMOKE.seen,
+    }
+    M.stats.smoke = M.stats.smoke + 1
+    game.emit_particles{
+        pos = pos,
+        count = math.min(16, 2 + count // 3),
+        colour = EMBERS.colour,
+        size = EMBERS.size,
+        lifetime = EMBERS.lifetime,
+        velocity = { y = EMBERS.rise },
+        spread = EMBERS.spread,
+        area = area,
+        gravity = EMBERS.gravity,
+        collide = true,
+        radius = EMBERS.seen,
+    }
+end
+
+local last_douse = {}            -- blaze id -> the tick its last hiss played
+
+wx.fire.on_change(function(event)
+    local blaze = event.blaze
+    if event.kind == "blaze_start" then
+        fire_loop(blaze, 1)
+    elseif event.kind == "blaze_end" then
+        game.stop_loop{ id = loop_id(blaze), fade_ticks = FIRE_LOOP_OUT }
+        last_douse[blaze.id] = nil
+    elseif event.kind == "doused" and blaze and last_douse[blaze.id] ~= wx.now then
+        last_douse[blaze.id] = wx.now
+        local p = event.pos
+        game.play_sound{ sound = "douse", pos = { x = p.x + 0.5, y = p.y + 0.5, z = p.z + 0.5 },
+            radius = DOUSE.heard, gain = DOUSE.gain }
+    end
+end)
+
+-- Every FIRE_TURN_TICKS, on fire.lua's own cadence, while anything is alight.
+local since_fire_turn = 0
+local function fires_seen(dt_ticks)
+    since_fire_turn = since_fire_turn + dt_ticks
+    if since_fire_turn < config.FIRE_TURN_TICKS then
+        return
+    end
+    since_fire_turn = 0
+    if wx.fire.count() == 0 then
+        return
+    end
+    for _, blaze in ipairs(wx.fire.blazes()) do
+        fire_loop(blaze, blaze.count or 0)
+        fire_seen(blaze, wx.now)
+    end
+end
+
+-- A player who joins is not told about running loops: start every blaze's
+-- again. The same sound under the same id is a MOVE for everybody already
+-- hearing it, so nobody else's crackle restarts.
+wx.on_join(function()
+    for _, blaze in ipairs(wx.fire.blazes()) do
+        fire_loop(blaze, blaze.count or 0)
+    end
+end)
 
 -- ------------------------------------------------------------ clouds
 
@@ -537,8 +809,9 @@ controller.on_evaluated(function()
     end
 end)
 
-wx.on_tick(function()
+wx.on_tick(function(dt_ticks)
     thunder(wx.now)
+    fires_seen(dt_ticks)
 end)
 
 -- A player who leaves takes their settings with them; one who rejoins is on

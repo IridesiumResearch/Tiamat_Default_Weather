@@ -257,6 +257,77 @@ M.damp = {
     [theirs("sand")] = "tiamat_weather:damp_sand",
 }
 
+-- ------------------------------------------------------------ fuel
+
+-- What burns (plan 5.12), by material. `catch` is permille odds, against
+-- FIRE_SPREAD, that a burning neighbour lights it; `burn` is how long it
+-- burns, in ticks; `residue` what is left; `kind` decides the cap and the
+-- radius a blaze that starts in it gets. Turf is never fuel: a burning
+-- ground block would be a pit for the burn's duration. Every name goes
+-- through pcall, so a Spindle that has lost one still loads with the rest.
+--
+-- The residues are this mod's own blocks named as STRINGS, not read from
+-- wx.blocks: blocks.lua loads AFTER this file, because it needs the adapter
+-- to know whether to make the damp blocks. fire.lua checks at load that
+-- every residue names a registered block before it will push one.
+local AIR = "engine:air"
+local CHARRED = "tiamat_weather:charred_log"
+local SCORCHED = "tiamat_weather:scorched_ground"
+
+M.fuel = {}
+local function fuels(kind, burn, residue, list)
+    for _, entry in ipairs(list) do
+        local ok, id = pcall(game.get_block_id, theirs(entry[1]))
+        if ok and id ~= nil then
+            M.fuel[id] = { catch = entry[2], burn = entry.burn or burn, residue = residue, kind = kind }
+        end
+    end
+end
+-- Canopies go fast and leave nothing. The wet giants (kapok, ironwood) and
+-- the mangroves over water catch poorly; needles and gorse catch best, and
+-- with redwood it is the needles that go, not the resinous trunk.
+fuels("canopy", 300, AIR, {
+    { "oak_leaves", 800 }, { "birch_leaves", 800 }, { "willow_leaves", 700 }, { "apple_leaves", 800 },
+    { "cherry_leaves", 800 }, { "acacia_leaves", 800 }, { "kapok_leaves", 400 }, { "ironwood_leaves", 400 },
+    { "mangrove_leaves", 300 }, { "fir_needles", 900 }, { "juniper_needles", 900 }, { "redwood_needles", 600 },
+    { "apple_blossom", 800 }, { "cherry_blossom", 800 }, { "gorse", 950 },
+})
+-- Wood catches slowly and burns long, to a charred log. Ironwood barely
+-- catches at all; a dead log is tinder and is gone sooner; planks are dry.
+fuels("wood", 900, CHARRED, {
+    { "oak_log", 250 }, { "birch_log", 250 }, { "fir_log", 300 }, { "willow_log", 250 }, { "kapok_log", 250 },
+    { "juniper_log", 300 }, { "apple_log", 250 }, { "cherry_log", 250 }, { "mangrove_log", 200 },
+    { "acacia_log", 250 }, { "redwood_log", 200 }, { "ironwood_log", 100 }, { "dead_log", 700, burn = 500 },
+    { "willow_planks", 300, burn = 700 }, { "ironwood_planks", 300, burn = 700 }, { "kapok_planks", 300, burn = 700 },
+})
+-- Plants are a field fire: quick and wide, and they scorch the turf under
+-- them (M.scorch). Dead sagebrush is the tinder of the dry half. A tuft
+-- burns twelve seconds (the spec said six): in a flat meadow only eight of
+-- a fire's twenty-six neighbours are tufts, and at six seconds a field fire
+-- in dry, warm country lit fewer than one tuft for each that burnt, so it
+-- went out after two. Twelve lets one creep to a black patch of a few dozen
+-- blocks and still end short of its cap (tests/native, fire_field_check).
+fuels("plant", 240, AIR, {
+    { "tall_grass", 700 }, { "fern", 500 }, { "bramble", 600 }, { "heather", 800 }, { "dead_sagebrush", 950, burn = 80 },
+    { "ladys_mantle", 400 }, { "ladys_mantle_bloom", 400 }, { "blue_lunaria", 300 }, { "roman_chamomile", 300 },
+    { "rose_bush", 400 }, { "rose_blooms", 400 }, { "wild_mint", 300 }, { "allium", 350 }, { "peony", 350 },
+    { "poppy", 350 }, { "bluebell", 350 }, { "reeds", 500 }, { "climbing_ivy", 400 }, { "monstera", 300 },
+})
+
+-- Whole ground blocks a plant fire scorches, and what each becomes.
+M.scorch = {}
+for id in pairs(ids({ "grass", "mulch" })) do
+    M.scorch[id] = SCORCHED
+end
+
+-- Solid blocks that light what stands beside them. Still lava as a FLUID
+-- has no name to look up (`get_fluid` answers volume alone), so fire.lua
+-- tells it from water by its light instead.
+M.hot_blocks = ids({ "magma", "lava" })
+
+-- What scorched ground heals to.
+M.bare = theirs("dirt")
+
 -- ------------------------------------------------------------ switches the Spindle unlocks
 
 -- Damp ground needs the Spindle to treat damp dirt as dirt (plan 7.1), and
@@ -280,6 +351,13 @@ end
 
 function M.unlock_puddles()
     return called("add_harmless_fluid", "tiamat_weather:rainwater")
+end
+
+-- Scorched ground is dirt to the Spindle's rules (plan 5.12), so its grass
+-- grows back over a burnt field. Called from fire.lua, once the block
+-- exists; the Spindle keeps the names as strings and resolves them later.
+function M.unlock_scorched()
+    return called("add_soil_alias", SCORCHED, theirs("dirt"))
 end
 
 local DUST_WARMTH = 700

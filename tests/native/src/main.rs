@@ -26,6 +26,7 @@ use tiamat_core::{
     hud::{self, State, Value, Values},
     identity::PlayerUuid,
     light::{Light, LightSource},
+    modload::WorldOptionValue,
     particle::{self, EmitRequest},
     script::{
         ChatEvent, EngineVm, FluidFlowEvent, HudLimits, HudVm, JoinEvent, LeaveEvent, RandomTickEvent, ScriptVm, VmLimits,
@@ -243,6 +244,18 @@ struct World {
     fluid_writes: Mutex<Vec<(u64, BlockPos, u8, u32)>>,
     /// Materials `surface_at` looks through when asked to skip passable ones.
     passable: Mutex<Vec<MaterialId>>,
+    /// Positions lit by a lava glow: `light_at` answers a hot fluid's red
+    /// there, which is how the fire code tells still lava from water.
+    hot: Mutex<Vec<(i32, i32, i32)>>,
+    /// Ground nobody has loaded, as (x, z) rectangles `((x0, z0), (x1, z1))`,
+    /// inclusive: `block_at` answers `Absent` there, which is nil to a mod,
+    /// as the engine does for a chunk that is not loaded.
+    unloaded: Mutex<Vec<((i32, i32), (i32, i32))>>,
+    /// The highest placed block in each column, kept by `put`, so `light_at`
+    /// asks one map rather than walking every block: a 200-block canopy is
+    /// forty thousand of them, and a burning wood asks for the light on every
+    /// fire every turn.
+    tops: Mutex<HashMap<(i32, i32), i32>>,
 }
 
 // Fluid ids in the fake: rainwater is 1, anything else registered is 2.
@@ -252,11 +265,35 @@ const WATER_ID: u8 = 2;
 impl World {
     fn put(&self, x: i32, y: i32, z: i32, material: MaterialId, occupancy: u32) {
         let mut blocks = self.blocks.lock().unwrap();
+        let mut tops = self.tops.lock().unwrap();
         if occupancy == 0 {
             blocks.remove(&(x, y, z));
+            // Taking the top block off a column is the one case that needs
+            // the walk, and it is rare: a leaf burning away, a layer thawing.
+            if tops.get(&(x, z)) == Some(&y) {
+                let below = blocks.iter().filter(|((bx, _, bz), _)| *bx == x && *bz == z).map(|((_, by, _), _)| *by).max();
+                match below {
+                    Some(top) => {
+                        tops.insert((x, z), top);
+                    }
+                    None => {
+                        tops.remove(&(x, z));
+                    }
+                }
+            }
         } else {
             blocks.insert((x, y, z), (material, occupancy));
+            let top = tops.entry((x, z)).or_insert(y);
+            *top = (*top).max(y);
         }
+    }
+    /// The same ground as another rig's world: what a server keeps across a
+    /// restart, as distinct from what the mod keeps in storage.
+    fn copy_from(&self, other: &World) {
+        *self.blocks.lock().unwrap() = other.blocks.lock().unwrap().clone();
+        *self.tops.lock().unwrap() = other.tops.lock().unwrap().clone();
+        *self.floor.lock().unwrap() = *other.floor.lock().unwrap();
+        *self.fluids.lock().unwrap() = other.fluids.lock().unwrap().clone();
     }
     fn at(&self, x: i32, y: i32, z: i32) -> (MaterialId, u32) {
         if let Some(found) = self.blocks.lock().unwrap().get(&(x, y, z)) {
@@ -288,6 +325,11 @@ impl sight::Access for World {
         Sighting::Clear
     }
     fn block_at(&self, _: &str, pos: BlockPos) -> Reading {
+        let away = self.unloaded.lock().unwrap();
+        if away.iter().any(|((x0, z0), (x1, z1))| pos.x >= *x0 && pos.x <= *x1 && pos.z >= *z0 && pos.z <= *z1) {
+            return Reading::Absent;
+        }
+        drop(away);
         let (material, occupancy) = self.at(pos.x, pos.y, pos.z);
         Reading::Single { material, occupancy }
     }
@@ -345,6 +387,11 @@ impl fluid::Access for World {
 
 impl LightSource for World {
     fn light_at(&self, _: &str, pos: BlockPos) -> Light {
+        // A lava glow first: the Spindle's lava emits { 15, 8, 1 }, and that
+        // red at a fluid surface is what tells the fire code it is hot.
+        if self.hot.lock().unwrap().contains(&(pos.x, pos.y, pos.z)) {
+            return Light::new(15, 15, 8, 1);
+        }
         if self.roofs.lock().unwrap().contains(&(pos.x, pos.z)) {
             return Light::DARK;
         }
@@ -352,12 +399,7 @@ impl LightSource for World {
             return Light::new(6, 0, 0, 0);
         }
         let (top, _) = *self.floor.lock().unwrap();
-        let covered = self
-            .blocks
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|((x, y, z), (_, occ))| *x == pos.x && *z == pos.z && *y > pos.y && *occ != 0);
+        let covered = self.tops.lock().unwrap().get(&(pos.x, pos.z)).is_some_and(|highest| *highest > pos.y);
         if pos.y > top && !covered { Light::DAYLIGHT } else { Light::DARK }
     }
 }
@@ -388,10 +430,13 @@ struct Rig {
     materials: HashMap<String, MaterialId>,
 }
 
-// The stand-in Spindle: every block the weather mod looks up by name.
+// The stand-in Spindle: every block the weather mod looks up by name. The
+// fuel, the hot blocks and the scorchable turf are looked up the same way, so
+// a plain `register_block{ id = id }` is enough for them too: weather reads
+// their names, never their flags.
 const SPINDLE_STANDIN: &str = "for _, id in ipairs({ 'dirt', 'packed_dirt', 'sand', 'snow', 'ice', 'clear_ice', \
     'permafrost', 'gravel', 'stone', 'mud', 'dried_mud', 'lava_rock', 'pumice', 'sulfur', 'obsidian', 'dark_sand', 'salt', 'oak_log', 'birch_log', 'grass', \
-    'oak_leaves' }) \
+    'oak_leaves', 'tall_grass', 'fern', 'fir_needles', 'fir_log', 'dead_log', 'heather', 'mulch', 'magma', 'lava', 'gorse' }) \
     do game.register_block{ id = id } end";
 
 impl Rig {
@@ -405,6 +450,18 @@ impl Rig {
     /// The whole rig: a Spindle stand-in's source (or none), and mods loaded
     /// AFTER weather as `(id, source, depends)`, for reading its exports.
     fn custom(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
+        Self::build(spindle, storage, prelude, after, &[])
+    }
+    /// A rig whose world chose its options on the new-world screen, as
+    /// `(qualified id, value)`. Installed before any mod runs, as the loader
+    /// does, because `init.lua` reads them.
+    fn options(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, options: &[(&str, WorldOptionValue)]) -> Self {
+        Self::build(spindle, storage, prelude, &[], options)
+    }
+    fn build(
+        spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])],
+        options: &[(&str, WorldOptionValue)],
+    ) -> Self {
         let spindle_id = "tiamat_default_world";
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mods").join(MOD);
         let mut vm = EngineVm::create(VmLimits::default()).unwrap();
@@ -424,6 +481,11 @@ impl Rig {
         vm.set_fluid_access(world.clone());
         vm.set_light_source(world.clone());
         vm.set_world_edit(world.clone());
+        // What the world chose, ahead of every init.lua: a mod may register
+        // differently for one world than another, so this cannot come later.
+        let chosen: Vec<(String, WorldOptionValue)> =
+            options.iter().map(|(id, value)| ((*id).to_owned(), value.clone())).collect();
+        vm.set_world_options(&chosen);
         if let Some(source) = spindle {
             vm.load_mod(spindle_id, source, &dir).unwrap();
             // What the resolver tells the VM from mod.toml's optional_depends:
@@ -511,6 +573,35 @@ impl Rig {
     fn edits_since(&self, from: u64) -> Vec<(u64, BlockPos, String, u32)> {
         self.world.edits.lock().unwrap().iter().filter(|e| e.0 > from).cloned().collect()
     }
+    /// The edits since `from` that wrote one block, by its qualified id.
+    fn edits_named(&self, from: u64, block: &str) -> Vec<(u64, BlockPos, String, u32)> {
+        self.edits_since(from).into_iter().filter(|e| e.2 == block).collect()
+    }
+    /// The fire edits since `from`: one per block set alight.
+    fn ignitions_since(&self, from: u64) -> Vec<(u64, BlockPos, String, u32)> {
+        self.edits_named(from, FIRE)
+    }
+    /// Blocks of fire in the world right now, whatever the mod thinks.
+    fn fires_in_world(&self) -> usize {
+        let Some(fire) = self.materials.get(FIRE) else { return 0 };
+        self.world.blocks.lock().unwrap().values().filter(|(material, occupancy)| material == fire && *occupancy != 0).count()
+    }
+    /// Ticks `n`, looking at the world every 200: the world-wide cap has to
+    /// hold at every moment, not only once the fire is out. Answers the most
+    /// blocks alight at any look.
+    fn burn(&mut self, n: u64) -> usize {
+        let mut peak = 0;
+        let mut left = n;
+        while left > 0 {
+            let step = left.min(200);
+            self.tick(step);
+            left -= step;
+            let alight = self.fires_in_world();
+            assert!(alight <= FIRE_MAX_BURNING, "{alight} blocks alight at tick {}, over the world cap of {FIRE_MAX_BURNING}", self.now);
+            peak = peak.max(alight);
+        }
+        peak
+    }
 }
 
 // The number after `label` in a reply, e.g. "warmth 812".
@@ -518,6 +609,14 @@ fn number_after(text: &str, label: &str) -> f64 {
     let at = text.find(label).unwrap_or_else(|| panic!("no `{label}` in `{text}`")) + label.len();
     let rest: String = text[at..].chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
     rest.parse().unwrap_or_else(|_| panic!("`{label}` is not followed by a number in `{text}`"))
+}
+
+// The integer before `label` in a reply, e.g. "12 blocks burning".
+fn number_before(text: &str, label: &str) -> usize {
+    let at = text.find(label).unwrap_or_else(|| panic!("no `{label}` in `{text}`"));
+    let digits: Vec<char> = text[..at].chars().rev().take_while(char::is_ascii_digit).collect();
+    let number: String = digits.into_iter().rev().collect();
+    number.parse().unwrap_or_else(|_| panic!("`{label}` is not preceded by a number in `{text}`"))
 }
 
 const ONE_LAYER: u32 = 0x1C0E07;
@@ -534,6 +633,18 @@ fn main() {
     puddle_check();
     exports_check();
     mega_check();
+    fire_forest_check();
+    fire_field_check();
+    fire_rain_check();
+    fire_wet_check();
+    fire_caps_check();
+    fire_rest_check();
+    fire_restart_check();
+    fire_unloaded_check();
+    fire_orphan_check();
+    fire_off_check();
+    lightning_check();
+    fire_lava_check();
     plain_check();
     hud_check();
     println!("all weather checks passed");
@@ -647,7 +758,11 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(deck.thickness >= 128.0 && deck.towers > 0.0, "heaps with towers: {deck:?}");
     assert!((deck.drift[0] - 0.5).abs() < 1e-6 && deck.drift[1] == 0.0, "drifts with the fronts: {:?}", deck.drift);
     assert!(deck.shade[2] > deck.shade[0], "a blue-violet shade: {:?}", deck.shade);
-    assert!(r.particles.bursts.lock().unwrap().is_empty(), "no particles at all: the puffs are gone");
+    // The rain puffs are gone: the only bursts a storm emits are lightning's
+    // sparks at the point of impact (spec 2026-09-23), quick and heavy.
+    let bursts = r.particles.bursts.lock().unwrap().clone();
+    assert!(bursts.iter().all(|(_, b)| b.burst.gravity >= 10.0 && b.burst.lifetime < 1.0),
+        "no particles but lightning's sparks: the puffs are gone: {:?}", bursts.iter().map(|(_, b)| &b.burst).collect::<Vec<_>>());
     let storm_clouds = r.clouds_of(ALICE).expect("a storm sets the clouds");
     assert!(storm_clouds.cover >= 0.99 && storm_clouds.darkness >= 0.85, "overcast and dark: {storm_clouds:?}");
     let floor = storm_clouds.base.expect("the floor is sent per player");
@@ -1031,8 +1146,9 @@ fn exports_check() {
     assert!(reply.contains("damp ground on, puddles on"), "both unlocked: {reply}");
     assert!(r.materials.contains_key("tiamat_weather:damp_dirt"));
     let told = r.reply(ALICE, "/spindle");
-    assert_eq!(told, "tiamat_weather:damp_dirt=tiamat_default_world:dirt,tiamat_weather:damp_packed_dirt=tiamat_default_world:packed_dirt,tiamat_weather:damp_sand=tiamat_default_world:sand;tiamat_weather:rainwater");
-    println!("ok  Spindle exports read: humidity, climate, biomes; damp ground and puddles unlocked by its answers");
+    // Fire (2026-09-23) asks for scorched ground to be soil too, so its grass grows back.
+    assert_eq!(told, "tiamat_weather:damp_dirt=tiamat_default_world:dirt,tiamat_weather:damp_packed_dirt=tiamat_default_world:packed_dirt,tiamat_weather:damp_sand=tiamat_default_world:sand,tiamat_weather:scorched_ground=tiamat_default_world:dirt;tiamat_weather:rainwater");
+    println!("ok  Spindle exports read: humidity, climate, biomes; damp ground, puddles and scorched ground unlocked by its answers");
 
     // 2. The Spindle's exported function errors: the SPINDLE is disabled, the
     // call answers nil, and weather carries on with its mirror.
@@ -1208,6 +1324,708 @@ fn mega_check() {
     let said = r.reply(ALICE, "/weather mega");
     assert!(said.contains("the next in"), "{said}");
     println!("ok  mega storms: {per_year:.2} a year at a place, {strong_per_year:.2} strong; `{said}`");
+}
+
+// --- Fire --------------------------------------------------------------------
+//
+// The fire contract's names and numbers (config.lua's fire section, spec
+// 2026-09-23), mirrored here so a retuned cap fails a check rather than
+// passing quietly. "Not out of control" is the first requirement, so most of
+// what follows is caps: how many blocks, how far, how many blazes, how long.
+
+const FIRE_MAX_BLAZES: usize = 4;
+const FIRE_MAX_BURNING: usize = 120;
+const FIRE_FOREST_BLOCKS: usize = 60;
+const FIRE_FOREST_RADIUS: i32 = 12;
+const FIRE_FIELD_BLOCKS: usize = 90;
+const FIRE_FIELD_RADIUS: i32 = 16;
+const STRIKE_ABOVE: i32 = 40;
+const FIRE: &str = "tiamat_weather:fire";
+const CHARRED: &str = "tiamat_weather:charred_log";
+const SCORCHED: &str = "tiamat_weather:scorched_ground";
+const AIR: &str = "engine:air";
+const DIRT: &str = "tiamat_default_world:dirt";
+const GRASS: &str = "tiamat_default_world:grass";
+const LEAVES: &str = "tiamat_default_world:oak_leaves";
+const LOGS: &str = "tiamat_default_world:oak_log";
+const TUFT: &str = "tiamat_default_world:tall_grass";
+/// A two-cell tuft: the middle column of a block, two cells tall.
+const TUFT_CELLS: u32 = (1 << 10) | (1 << 13);
+
+/// Where the fire checks stand: the warm ring, off the weather_check's square.
+const FIRE_X: f64 = 0.5 * 59000.0;
+const FIRE_Z: f64 = 300.0;
+
+// A stand-in Spindle whose climate is a constant, so a check can choose dry
+// country or wet: `humidity` is the moisture the adapter reads, `climate` the
+// warmth in 0..1.
+fn spindle_exporting(humidity: f64, climate: f64) -> String {
+    format!(
+        "{SPINDLE_STANDIN}\ngame.export{{ version = 1, humidity = game.density{{ op = 'const', value = {humidity} }}, \
+         climate = function(x, z) return {climate} end }}"
+    )
+}
+
+// Alice on `floor` at (x, z), her square forced clear for an hour and given
+// time to ease there: a check about fire must not have the natural weather
+// raining on it.
+fn clear_day(r: &mut Rig, x: f64, z: f64, floor: &str) -> i32 {
+    let top = r.stand(ALICE, x, z, floor);
+    r.join(ALICE, x, f64::from(top + 1), z);
+    r.tick(41);
+    let set = r.reply(ALICE, "/weather set clear 60");
+    assert!(set.starts_with("clear over square"), "{set}");
+    r.tick(40 * 25);
+    top
+}
+
+// A small wood: a 7x7 canopy of oak leaves three deep at top+4..top+6 on four
+// trunks at top+1..top+5, centred on (cx, cz). The trunks run up INTO the
+// canopy, as the Spindle's do (an oak's crown clump is centred on its trunk
+// top and its branch tips sit inside their clumps): a crown fire surrounds
+// the wood. Trunks that stopped under the leaves got one attempt in
+// twenty-six from the leaf above and none once the blaze hit its cap, and
+// no trunk ever charred. Answers where the leaves are.
+fn plant_wood(r: &Rig, cx: i32, top: i32, cz: i32) -> Vec<(i32, i32, i32)> {
+    let leaves = r.material(LEAVES);
+    let logs = r.material(LOGS);
+    let mut crown = Vec::new();
+    for dx in -3..=3 {
+        for dz in -3..=3 {
+            for y in top + 4..=top + 6 {
+                r.world.put(cx + dx, y, cz + dz, leaves, FULL);
+                crown.push((cx + dx, y, cz + dz));
+            }
+        }
+    }
+    for (dx, dz) in [(-1, -1), (-1, 1), (1, -1), (1, 1)] {
+        for y in top + 1..=top + 5 {
+            r.world.put(cx + dx, y, cz + dz, logs, FULL);
+        }
+    }
+    crown.retain(|(x, y, z)| r.world.at(*x, *y, *z).0 == leaves);
+    crown
+}
+
+// A meadow: two-cell tufts on every block of a square of side 2 * half + 1
+// at y, centred on (cx, cz). The floor under them is the rig's.
+fn plant_meadow(r: &Rig, cx: i32, y: i32, cz: i32, half: i32) {
+    let tufts = r.material(TUFT);
+    for dx in -half..=half {
+        for dz in -half..=half {
+            r.world.put(cx + dx, y, cz + dz, tufts, TUFT_CELLS);
+        }
+    }
+}
+
+// Horizontal Chebyshev distance, which is the radius the blaze caps use.
+fn across(a: &BlockPos, cx: i32, cz: i32) -> i32 {
+    (a.x - cx).abs().max((a.z - cz).abs())
+}
+
+// A leaf of the wood that is still a leaf: what a second fire could start on.
+fn fresh_leaf(r: &Rig, crown: &[(i32, i32, i32)]) -> (i32, i32, i32) {
+    let leaves = r.material(LEAVES);
+    *crown.iter().find(|(x, y, z)| r.world.at(*x, *y, *z).0 == leaves).expect("some of the wood is left")
+}
+
+// A dry wood set alight by command burns as ONE blaze: no further than the
+// forest radius, no more blocks than the forest cap, never over the world
+// cap, and out by itself, leaving charred trunks and air where leaves were.
+// It is heard as a loop that starts and stops and seen as smoke that rises.
+fn fire_forest_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    let crown = plant_wood(&r, cx, top, cz);
+    let from = r.now;
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    let peak = r.burn(20 * 60 * 4);
+
+    let fires = r.ignitions_since(from);
+    assert!(fires.len() >= 10, "a dry wood catches: only {} blocks lit", fires.len());
+    assert!(fires.len() <= FIRE_FOREST_BLOCKS, "one forest blaze lights at most {FIRE_FOREST_BLOCKS}: {}", fires.len());
+    for (_, pos, _, _) in &fires {
+        let far = across(pos, cx, cz);
+        assert!(far <= FIRE_FOREST_RADIUS, "a fire {far} blocks from the origin, past {FIRE_FOREST_RADIUS}");
+    }
+    assert_eq!(r.fires_in_world(), 0, "burnt out on its own");
+    let charred = r.edits_named(from, CHARRED).len();
+    assert!(charred > 0, "a trunk burnt to charred wood");
+    let cleared = r.edits_named(from, AIR).iter().filter(|e| crown.contains(&(e.1.x, e.1.y, e.1.z))).count();
+    assert!(cleared > 0, "a leaf burnt to air");
+
+    let loops = r.sounds.loops.lock().unwrap().clone();
+    let crackle: Vec<_> = loops.iter().filter(|l| l.0.contains("fire_")).collect();
+    assert!(!crackle.is_empty(), "the blaze is heard: {loops:?}");
+    assert!(crackle.iter().all(|l| l.1.ends_with("fire")), "with the fire sound: {crackle:?}");
+    assert!(r.sounds.stops.lock().unwrap().iter().any(|s| s.contains("fire_")), "and its loop stopped when it ended");
+    let smoke = r.particles.bursts.lock().unwrap().iter().filter(|(_, b)| b.burst.count >= 6 && b.burst.gravity < 0.0).count();
+    assert!(smoke > 0, "smoke rose from it");
+
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight, 0 blocks burning"), "{said}");
+    assert!(number_after(&said, "burnt ") > 0.0, "{said}");
+    println!(
+        "ok  forest fire: {} blocks lit (cap {FIRE_FOREST_BLOCKS}), {peak} alight at most, {charred} trunks charred, {cleared} leaves gone, {} loop calls, {smoke} smoke bursts; `{said}`",
+        fires.len(), crackle.len());
+}
+
+// A meadow lit in the middle burns as a FIELD blaze: wider than a wood and
+// with its own cap, and where a tuft burnt out over whole turf the turf is
+// scorched. In dry, warm country it is a fire and not one tuft that went
+// out — the tuft's burn time was tuned for exactly that (plan 5.12), and
+// this is what holds the tuning — and it ends, and leaves a mark.
+fn fire_field_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, GRASS);
+    let (ax, az) = (FIRE_X as i32, FIRE_Z as i32);
+    plant_meadow(&r, ax, top + 1, az, 12);
+    let from = r.now;
+    let lit = r.reply(ALICE, &format!("/weather fire at {ax} {} {az}", top + 1));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    let peak = r.burn(20 * 60 * 4);
+
+    let fires = r.ignitions_since(from);
+    assert!(fires.len() >= 10, "a dry meadow carries a field fire: only {} tufts lit", fires.len());
+    assert!(fires.len() <= FIRE_FIELD_BLOCKS, "a field blaze lights at most {FIRE_FIELD_BLOCKS}: {}", fires.len());
+    let scorched = r.edits_named(from, SCORCHED);
+    assert!(!scorched.is_empty(), "a field fire leaves a black patch");
+    for (_, pos, block, _) in fires.iter().chain(scorched.iter()) {
+        assert!(across(pos, ax, az) <= FIRE_FIELD_RADIUS, "{block} at {pos:?}, past the field radius {FIRE_FIELD_RADIUS}");
+        let want = if block == FIRE { top + 1 } else { top };
+        assert_eq!(pos.y, want, "{block} at {pos:?}: fire in the tufts, scorching in the turf under them");
+    }
+    assert_eq!(r.fires_in_world(), 0, "burnt out");
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight, 0 blocks burning"), "{said}");
+    assert!(number_after(&said, "scorched ") > 0.0, "{said}");
+    println!("ok  field fire: {} tufts lit (cap {FIRE_FIELD_BLOCKS}), {peak} alight at most, {} blocks of turf scorched; `{said}`",
+        fires.len(), scorched.len());
+}
+
+// Rain puts a fire out: a wood well alight when a storm is forced over it
+// is out within a couple of minutes, some of it doused rather than burnt,
+// and each dousing hisses.
+fn fire_rain_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    plant_wood(&r, cx, top, cz);
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    // Well alight: thirty turns should do it; a slow start gets a little more.
+    let mut waited = 300;
+    r.tick(300);
+    while r.fires_in_world() <= 3 && waited < 900 {
+        r.tick(100);
+        waited += 100;
+    }
+    let alight = r.fires_in_world();
+    assert!(alight > 3, "well alight after {waited} ticks: {alight} blocks");
+
+    let set = r.reply(ALICE, "/weather set storm 5");
+    assert!(set.starts_with("storm over square"), "{set}");
+    r.burn(20 * 60);
+    let after_minute = r.fires_in_world();
+    // The storm eases in over forty seconds and a trunk burns for forty-five,
+    // so the last of it may outlast the minute; it must not outlast two more.
+    let mut extra = 0;
+    while r.fires_in_world() > 0 && extra < 20 * 60 * 2 {
+        r.burn(200);
+        extra += 200;
+    }
+    assert_eq!(r.fires_in_world(), 0, "the rain put it out ({extra} ticks past the first minute)");
+    let said = r.reply(ALICE, "/weather fires");
+    let doused = number_after(&said, "doused ");
+    assert!(doused > 0.0, "some of it was doused, not burnt: {said}");
+    // A dry wood burns out by itself inside this wait, so "nothing alight"
+    // alone would not show the rain did it: most of it must have been doused.
+    let burnt = number_after(&said, "burnt ");
+    assert!(doused > burnt, "the rain, not the fuel, ended it: {said}");
+    assert!(r.sounds.plays.lock().unwrap().iter().any(|s| s.ends_with("douse")), "the hiss of a fire put out");
+    println!("ok  rain: {alight} alight when the storm came, {after_minute} a minute later, out {extra} ticks after that, {doused} doused; `{said}`");
+}
+
+// Wet country does not burn: the same wood under a humidity of 0.45 fizzles.
+fn fire_wet_check() {
+    let spindle = spindle_exporting(0.45, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    plant_wood(&r, cx, top, cz);
+    let from = r.now;
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert!(lit.starts_with("lit at"), "a wet leaf still lights when forced: {lit}");
+    r.burn(20 * 60 * 4);
+    let fires = r.ignitions_since(from);
+    assert!(fires.len() < 15, "a wet wood fizzles: {} blocks lit", fires.len());
+    assert_eq!(r.fires_in_world(), 0);
+    println!("ok  wet wood: {} blocks lit before it fizzled", fires.len());
+}
+
+// The caps, and the command's replies: four blazes at once and no fifth, a
+// burning block is "burning", nothing under the crosshair is a message not
+// an error, bad coordinates are the usage line, `out` puts everything out,
+// and none of it for a player who is not an operator.
+fn fire_caps_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (ax, az) = (FIRE_X as i32, FIRE_Z as i32);
+    let mut replies = Vec::new();
+    for i in 0..5 {
+        let cx = ax - 120 + 60 * i;
+        plant_wood(&r, cx, top, az);
+        replies.push(r.reply(ALICE, &format!("/weather fire at {cx} {} {az}", top + 6)));
+    }
+    let lit = replies.iter().filter(|s| s.starts_with("lit at")).count();
+    assert_eq!(lit, FIRE_MAX_BLAZES, "{replies:?}");
+    assert!(replies[4].contains("cap"), "the fifth is refused by the cap: {replies:?}");
+    let again = r.reply(ALICE, &format!("/weather fire at {} {} {az}", ax - 120, top + 6));
+    assert!(again.starts_with("nothing lit at") && again.ends_with("burning"), "already alight: {again}");
+    assert_eq!(r.reply(ALICE, "/weather fire"), "look at something to set it alight");
+    assert_eq!(r.reply(ALICE, "/weather fire at here"), "usage: /weather fire [at <x> <y> <z> | out]");
+    assert_eq!(r.reply(BOB, "/weather fire out"), "only an operator can change the weather");
+    assert_eq!(r.reply(BOB, &format!("/weather fire at {ax} {} {az}", top + 6)), "only an operator can change the weather");
+
+    r.tick(12);
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with(&format!("{FIRE_MAX_BLAZES} blazes alight")), "{said}");
+    let out = r.reply(ALICE, "/weather fire out");
+    assert!(out.ends_with(" burning blocks put out"), "{out}");
+    let put_out: usize = out.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("no count in `{out}`"));
+    assert!(put_out >= FIRE_MAX_BLAZES, "{out}");
+    r.tick(200);
+    assert_eq!(r.fires_in_world(), 0, "all out");
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight, 0 blocks burning"), "{said}");
+
+    // The WORLD cap. Four fresh woods lit together would put some 230 blocks
+    // alight between them; `burn` looks every 200 ticks and holds each look
+    // under FIRE_MAX_BURNING, and more than one blaze's worth is alight at
+    // the peak, so it is the world cap and not a blaze's that held it there.
+    let from = r.now;
+    for i in 0..4 {
+        let cx = ax - 120 + 60 * i;
+        plant_wood(&r, cx, top, az + 60);
+        let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {}", top + 6, az + 60));
+        assert!(lit.starts_with("lit at"), "the slots are free again: {lit}");
+    }
+    let peak = r.burn(600);
+    assert!(peak > FIRE_FOREST_BLOCKS, "four woods together put more than one blaze's worth alight: {peak} at most");
+    let together = r.ignitions_since(from).len();
+    assert!(together > FIRE_FOREST_BLOCKS, "more than one blaze's cap lit across four: {together}");
+    assert!(r.reply(ALICE, "/weather fire out").ends_with(" burning blocks put out"));
+    r.tick(200);
+    assert_eq!(r.fires_in_world(), 0, "all out again");
+    println!("ok  caps: {lit} of 5 woods lit at once, the fifth `{}`; `{out}`; four together: {together} lit, {peak} alight at most under the world cap of {FIRE_MAX_BURNING}", replies[4]);
+}
+
+// A square that had a blaze rests: another mod's `ignite` lit the first one
+// and is refused there afterwards, an operator's forced one is not, and once
+// the rest is over (FIRE_REST_TICKS, a game day, a minute in this rig) the
+// export lights there again. Also the exports round trip: `flammable`,
+// `fire_at`, `fires`, `extinguish`, read by a mod loaded after weather.
+fn fire_rest_check() {
+    let reader = r#"
+        local wx = game.exports("tiamat_weather")
+        game.register_on_chat(function(event)
+            local name, rest = string.match(event.text, "^%s*/(%S+)%s*(.-)%s*$")
+            if wx == nil or name == nil then return nil end
+            local args = {}
+            for word in string.gmatch(rest, "%S+") do args[#args + 1] = word end
+            local x, y, z = tonumber(args[1]), tonumber(args[2]), tonumber(args[3])
+            if name == "lightit" then return tostring(wx.ignite(x, y, z)) end
+            if name == "burning" then return tostring(wx.fire_at(x, y, z)) end
+            if name == "flammable" then return tostring(wx.flammable(x, y, z)) end
+            if name == "putout" then return tostring(wx.extinguish(x, y, z)) end
+            if name == "fires" then
+                local blocks, blazes = wx.fires()
+                return tostring(blocks) .. "," .. tostring(blazes)
+            end
+            return nil
+        end)
+    "#;
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let prelude = "wx_overrides = { FIRE_REST_TICKS = 1200 }";
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[("fire_reader", reader, &["tiamat_weather"])]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    let crown = plant_wood(&r, cx, top, cz);
+    let leaf = format!("{cx} {} {cz}", top + 6);
+    assert_eq!(r.reply(ALICE, &format!("/flammable {leaf}")), "true", "a leaf is fuel");
+    assert_eq!(r.reply(ALICE, &format!("/flammable {} {top} {}", FIRE_X as i32, FIRE_Z as i32)), "false", "dirt is not");
+    assert_eq!(r.reply(ALICE, &format!("/burning {leaf}")), "false");
+    assert_eq!(r.reply(ALICE, "/fires"), "0,0");
+
+    // Lit THROUGH the export, so its natural path is seen to succeed before
+    // it is seen to refuse: a `false` below would otherwise prove nothing.
+    assert_eq!(r.reply(ALICE, &format!("/lightit {leaf}")), "true", "a fresh square takes another mod's ignite");
+    // Two turns: one for the edit to land, one for the fire to see it did.
+    r.tick(25);
+    assert_eq!(r.reply(ALICE, &format!("/burning {leaf}")), "true", "the lit leaf is burning");
+    let counted = r.reply(ALICE, "/fires");
+    assert!(counted.ends_with(",1") && !counted.starts_with("0,"), "one blaze, something alight: {counted}");
+    // Until the blaze ends, not a fixed while: the rest is counted from its
+    // end, and this rig's rest is short.
+    let mut waited = 0;
+    loop {
+        r.burn(200);
+        waited += 200;
+        if r.reply(ALICE, "/weather fires").starts_with("0 blazes alight") || waited >= 20 * 60 * 5 {
+            break;
+        }
+    }
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight"), "the blaze has ended: {said}");
+    assert!(!r.vm.faulted_mods().iter().any(|m| m == "fire_reader"), "the reader survived every call");
+
+    // The square rests: natural ignition refused, forced allowed.
+    let (fx, fy, fz) = fresh_leaf(&r, &crown);
+    let fresh = format!("{fx} {fy} {fz}");
+    assert_eq!(r.reply(ALICE, &format!("/lightit {fresh}")), "false", "a resting square refuses another mod's ignite");
+    assert_eq!(r.fires_in_world(), 0);
+    let forced = r.reply(ALICE, &format!("/weather fire at {fresh}"));
+    assert!(forced.starts_with("lit at"), "an operator may still force one: {forced}");
+    r.tick(25);
+    assert_eq!(r.reply(ALICE, &format!("/burning {fresh}")), "true");
+    let before = r.now;
+    assert_eq!(r.reply(ALICE, &format!("/putout {fresh}")), "true", "another mod may put it out");
+    r.tick(25);
+    let gone = r.edits_since(before).iter().any(|e| e.2 == AIR && (e.1.x, e.1.y, e.1.z) == (fx, fy, fz));
+    assert!(gone, "the put-out fire went to air");
+    assert_eq!(r.reply(ALICE, &format!("/burning {fresh}")), "false");
+
+    // And the rest ends: FIRE_REST_TICKS after the last blaze in the square
+    // ended, the export lights there again.
+    r.tick(1300);
+    let (gx, gy, gz) = fresh_leaf(&r, &crown);
+    assert_eq!(r.reply(ALICE, &format!("/lightit {gx} {gy} {gz}")), "true", "the rest is over");
+    let counted = r.reply(ALICE, "/fires");
+    assert!(counted.ends_with(",1"), "a new blaze by the export: {counted}");
+    println!("ok  rest: the reader's ignite lit a wood; after the blaze the square refused it and took the operator's, and took it again once the rest was over; exports flammable/fire_at/fires/extinguish answered");
+}
+
+// A restart mid-blaze: the fire state is in storage, so a new rig on the
+// same storage and the same ground carries the fire on to its end.
+fn fire_restart_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let storage = Arc::new(Storage::default());
+    let mut r = Rig::custom(Some(&spindle), storage.clone(), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    plant_wood(&r, cx, top, cz);
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    r.tick(300);
+    let alight = r.fires_in_world();
+    assert!(alight > 0, "alight at the restart");
+    let saved: Vec<String> = storage.keys(MOD).into_iter().filter(|k| k.starts_with("fire:")).collect();
+    assert!(saved.iter().any(|k| k.starts_with("fire:blaze:")), "the blaze is in storage: {saved:?}");
+
+    let mut again = Rig::custom(Some(&spindle), storage.clone(), "", &[]);
+    again.world.copy_from(&r.world);
+    again.stand(ALICE, FIRE_X, FIRE_Z, DIRT);
+    again.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
+    assert_eq!(again.fires_in_world(), alight, "the same ground");
+    // The load is the first tick's and a turn is ten ticks later, so this is
+    // storage as saved, before anything could burn out of it. The save at the
+    // restart ran after that tick's turn, so every fire block in the world
+    // was pushed by a turn it covers: what is restored is at least the world.
+    again.tick(1);
+    let said = again.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("1 blazes alight"), "the blaze is back: {said}");
+    let restored = number_before(&said, " blocks burning");
+    assert!(restored >= alight, "every block in the world is in storage: {restored} restored, {alight} in the world");
+    again.tick(40);
+    again.burn(20 * 60 * 4);
+    let went_on = again.ignitions_since(0).len() + again.edits_named(0, CHARRED).len() + again.edits_named(0, AIR).len();
+    assert!(went_on > 0, "the fire went on after the restart");
+    // For the same reason no block in the world was lit after the save, so
+    // none is an orphan for the random tick: the restored blaze put every
+    // one of them out itself.
+    let fire = again.material(FIRE);
+    let orphans: Vec<(i32, i32, i32)> =
+        again.world.blocks.lock().unwrap().iter().filter(|(_, (m, _))| *m == fire).map(|(p, _)| *p).collect();
+    assert!(orphans.is_empty(), "every block in the world was in storage: {orphans:?}");
+    assert_eq!(again.fires_in_world(), 0, "the restored blaze burnt out");
+    let said = again.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight, 0 blocks burning"), "{said}");
+    println!("ok  restart: {alight} alight at the restart, {restored} restored from storage, {went_on} edits after it, no orphans; `{said}`");
+}
+
+// A blaze whose chunk goes away under it: `get_block` answers nil there, so
+// nothing is seen and nothing is edited, and once every fire would have
+// burnt out had anyone been watching, the blaze ends by itself. Left as it
+// was, a blaze in a chunk nobody revisits would hold a slot, its block count
+// and FIRE_APART round its origin for ever, and four of them would end fire
+// world-wide. The blocks left in the chunk are orphans for the random tick
+// when it is loaded again.
+fn fire_unloaded_check() {
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    plant_wood(&r, cx, top, cz);
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    r.tick(300);
+    assert!(r.fires_in_world() > 3, "well alight");
+
+    // The ground under the wood is unloaded. The queue's tail lands first.
+    r.world.unloaded.lock().unwrap().push(((cx - 20, cz - 20), (cx + 20, cz + 20)));
+    r.tick(20);
+    let alight = r.fires_in_world();
+    let from = r.now;
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("1 blazes alight"), "a blaze whose fires may yet be burning: {said}");
+    // The longest fuel here is a log at 900 ticks, then the confirm time,
+    // from the last block lit before the chunk went; a minute and a half
+    // covers the lot.
+    r.tick(20 * 60 + 200);
+    assert!(r.edits_since(from).is_empty(), "nothing is edited in a chunk nobody has loaded");
+    assert_eq!(r.fires_in_world(), alight, "the blocks sit in the saved chunk as they were");
+    let said = r.reply(ALICE, "/weather fires");
+    assert!(said.starts_with("0 blazes alight, 0 blocks burning"), "the blaze ended without its chunk: {said}");
+    assert!(r.sounds.stops.lock().unwrap().iter().any(|s| s.contains("fire_")), "and its loop stopped");
+
+    // Loaded again, the blocks are orphans: their random ticks put them out.
+    r.world.unloaded.lock().unwrap().clear();
+    let fire = r.material(FIRE);
+    let orphans: Vec<(i32, i32, i32)> =
+        r.world.blocks.lock().unwrap().iter().filter(|(_, (m, _))| *m == fire).map(|(p, _)| *p).collect();
+    assert_eq!(orphans.len(), alight, "every block left is an orphan");
+    for (x, y, z) in &orphans {
+        r.random_tick(*x, *y, *z);
+        r.tick(3);
+    }
+    assert_eq!(r.fires_in_world(), 0, "the orphans went out on their random ticks");
+    println!("ok  unloaded: {alight} alight when the chunk went, the blaze ended with nothing edited, {} orphans put out on reload; `{said}`", orphans.len());
+}
+
+// A fire block that belongs to no blaze — placed by hand, or left by a lost
+// storage — goes out on its random tick.
+fn fire_orphan_check() {
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    let top = r.stand(ALICE, FIRE_X, FIRE_Z, DIRT);
+    r.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
+    r.tick(1);
+    let (fx, fz) = (FIRE_X as i32 + 3000, FIRE_Z as i32);
+    let far_top = dome_y(f64::from(fx), f64::from(fz)).floor() as i32;
+    r.world.put(fx, far_top + 1, fz, r.material(FIRE), FULL);
+    let before = r.now;
+    r.random_tick(fx, far_top + 1, fz);
+    r.tick(3);
+    let there: Vec<_> = r.edits_since(before).into_iter().filter(|e| e.1.x == fx && e.1.z == fz).collect();
+    assert_eq!(there.len(), 1, "one edit from the random tick: {there:?}");
+    assert_eq!((there[0].2.as_str(), there[0].1.y), (AIR, far_top + 1), "the orphan went to air");
+    assert_eq!(r.fires_in_world(), 0);
+    println!("ok  an orphaned fire block goes out on its random tick");
+}
+
+// A world that chose no wildfires: the option is read at load, the command
+// says so, the blocks are still registered (a fire from another world's
+// save must still be a block here), and a storm over bare grass scorches
+// nothing — the mark is under the same switch as the fire.
+fn fire_off_check() {
+    let prelude = "wx_overrides = { STRIKE_SCORCH_ODDS = 1 }";
+    let mut r = Rig::options(Some(SPINDLE_STANDIN), Arc::new(Storage::default()), prelude,
+        &[("tiamat_weather:fires", WorldOptionValue::Toggle(false))]);
+    let top = r.stand(ALICE, FIRE_X, FIRE_Z, GRASS);
+    r.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
+    r.tick(1);
+    let (cx, cz) = (FIRE_X as i32 + 10, FIRE_Z as i32);
+    plant_wood(&r, cx, top, cz);
+    let lit = r.reply(ALICE, &format!("/weather fire at {cx} {} {cz}", top + 6));
+    assert_eq!(lit, format!("nothing lit at {cx},{},{cz}: off", top + 6));
+    assert_eq!(r.reply(ALICE, "/weather fires"), "fires are switched off in this world");
+    for block in [FIRE, CHARRED, SCORCHED] {
+        assert!(r.materials.contains_key(block), "{block} is registered whatever the world chose");
+    }
+    r.tick(200);
+    assert!(r.ignitions_since(0).is_empty(), "nothing lit");
+
+    // Five minutes of storm over grass, every grounded bolt on turf a scorch
+    // if the switch allowed one: the bolts land and leave the turf alone.
+    let set = r.reply(ALICE, "/weather set storm 10");
+    assert!(set.starts_with("storm over square"), "{set}");
+    r.tick(20 * 60 * 5);
+    let flashes = r.atmosphere.flashes.lock().unwrap().len();
+    assert!(flashes > 0, "the storm struck");
+    assert!(r.edits_named(0, SCORCHED).is_empty(), "no scorch mark with wildfires off");
+    assert!(r.ignitions_since(0).is_empty(), "and still nothing lit");
+    println!("ok  wildfires off: `{lit}`; the fire blocks are still registered; {flashes} bolts on grass scorched nothing");
+}
+
+// Lightning lands: a bolt strikes the highest of a few ground points rather
+// than the air over the player, sparks fly at the point of impact, a strike
+// on leaves can light them, a strike on bare turf can scorch it, and an
+// operator can call one down.
+fn lightning_check() {
+    let prelude = "wx_overrides = { FIRE_LIGHTNING_ODDS = 1, STRIKE_SCORCH_ODDS = 1 }";
+    let spindle = spindle_exporting(-0.35, 0.6);
+
+    // A canopy wider than a bolt's reach either way, so every strike lands on
+    // leaves at top + 5, and the flash sits one over that — or, where a leaf
+    // has already burnt to air, on the floor under it, one over top.
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[]);
+    let top = r.stand(ALICE, FIRE_X, FIRE_Z, DIRT);
+    let (ax, az) = (FIRE_X as i32, FIRE_Z as i32);
+    let leaves = r.material(LEAVES);
+    for dx in -100..=100 {
+        for dz in -100..=100 {
+            r.world.put(ax + dx, top + 5, az + dz, leaves, FULL);
+        }
+    }
+    r.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
+    r.tick(41);
+    let set = r.reply(ALICE, "/weather set storm 10");
+    assert!(set.starts_with("storm over square"), "{set}");
+    let peak = r.burn(20 * 60 * 5);
+
+    let flashes = r.atmosphere.flashes.lock().unwrap().clone();
+    assert!(!flashes.is_empty(), "a storm strikes");
+    let on_canopy = f64::from(top + 6);
+    let fallback = f64::from(top + 1 + STRIKE_ABOVE);
+    let bare = f64::from(top + 1);
+    let (mut landed, mut burnt_through, mut fell_back) = (0, 0, 0);
+    for (_, flash) in &flashes {
+        if flash.pos[1] == on_canopy {
+            landed += 1;
+        } else if flash.pos[1] == bare {
+            // A bolt on ground a burnt leaf left bare: as legitimate a landing.
+            burnt_through += 1;
+        } else if flash.pos[1] == fallback {
+            fell_back += 1;
+        } else {
+            panic!("a flash at y {} is neither on the canopy ({on_canopy}), on bared ground ({bare}) nor the fallback ({fallback})", flash.pos[1]);
+        }
+        assert!(across(&BlockPos::new(flash.pos[0] as i32, 0, flash.pos[2] as i32), ax, az) <= 100, "{flash:?} is off the canopy");
+    }
+    assert!(landed > 0, "every bolt fell back to the air: {flashes:?}");
+    assert_eq!(fell_back, 0, "there is ground under every candidate, so every flash sits one over a surface");
+    let sparks = r.particles.bursts.lock().unwrap().iter().filter(|(_, b)| b.burst.gravity >= 10.0 && b.burst.lifetime < 1.0).count();
+    assert!(sparks > 0, "sparks at the point of impact");
+    let said = r.reply(ALICE, "/weather fires");
+    let by_lightning = number_after(&said, "by lightning ");
+    assert!(by_lightning > 0.0, "a bolt on leaves lit them: {said}");
+    println!("ok  lightning: {landed} bolts on the canopy, {burnt_through} on ground a fire had bared, none fell back, {sparks} spark bursts, {by_lightning} blazes by lightning, {peak} alight at most; `{said}`");
+
+    // Over bare turf a bolt leaves a scorch mark, and an operator may call one.
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[]);
+    let top = r.stand(ALICE, FIRE_X, FIRE_Z, GRASS);
+    r.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
+    r.tick(41);
+    r.say(ALICE, "/weather set storm 10");
+    r.tick(20 * 60 * 5);
+    let scorched = r.edits_named(0, SCORCHED);
+    assert!(!scorched.is_empty(), "a bolt on bare grass scorched it");
+    assert!(scorched.iter().all(|e| e.1.y == top), "the mark is in the turf itself: {scorched:?}");
+    assert!(r.ignitions_since(0).is_empty(), "turf is never fuel");
+    let flashes = r.atmosphere.flashes.lock().unwrap().len();
+    let bolt = r.reply(ALICE, "/weather strike");
+    assert!(bolt.starts_with("a bolt at"), "{bolt}");
+    assert_eq!(r.atmosphere.flashes.lock().unwrap().len(), flashes + 1, "the called bolt flashed");
+    assert_eq!(r.reply(BOB, "/weather strike"), "only an operator can change the weather");
+    println!("ok  lightning on turf: {} scorch marks in five minutes of storm; `{bolt}`", scorched.len());
+}
+
+// Fire from lava, three ways: a hot block beside fuel, a still hot fluid
+// told from water by its glow, and a flow pressing on a leaf.
+fn fire_lava_check() {
+    // Every hot surface the sampler finds lights the fuel beside it, and the
+    // sampler looks often: it draws a few random columns within SAMPLE_RADIUS
+    // of the player, so at its ordinary pace one bar of magma is found about
+    // once in three runs.
+    let prelude = "wx_overrides = { FIRE_LAVA_ODDS = 1, FIRE_FLOW_ODDS = 1, FIRE_SAMPLE_TICKS = 2, FIRE_SAMPLE_COLUMNS = 8 }";
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let (ax, az) = (FIRE_X as i32, FIRE_Z as i32);
+
+    // 1. Still lava as a block: a bar of magma through a meadow, two blocks
+    // from Alice.
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, GRASS);
+    plant_meadow(&r, ax, top + 1, az, 14);
+    let magma = r.material("tiamat_default_world:magma");
+    for dx in -12..=12 {
+        r.world.put(ax + dx, top + 1, az + 2, magma, FULL);
+    }
+    let from = r.now;
+    r.burn(20 * 30);
+    let said = r.reply(ALICE, "/weather fires");
+    let by_magma = number_after(&said, "by lava ");
+    assert!(by_magma > 0.0, "magma lit the grass beside it: {said}");
+    let fires = r.ignitions_since(from);
+    assert!(!fires.is_empty(), "{said}");
+    for (_, pos, _, _) in &fires {
+        assert_eq!(pos.y, top + 1, "fire in the tufts");
+        assert!(!(pos.z == az + 2 && (pos.x - ax).abs() <= 12), "fire on the magma itself at {pos:?}");
+    }
+    println!("ok  magma: {by_magma} blazes by lava, {} tufts lit in thirty seconds", fires.len());
+
+    // 2. Still lava as a fluid: the rig's water, glowing. The same fluid
+    // without the glow is water and lights nothing.
+    for glow in [true, false] {
+        let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[]);
+        let top = clear_day(&mut r, FIRE_X, FIRE_Z, GRASS);
+        plant_meadow(&r, ax, top + 1, az, 14);
+        for dx in -12..=12 {
+            let at = (ax + dx, top + 1, az + 2);
+            r.world.put(at.0, at.1, at.2, MaterialId(0), 0);
+            r.world.fluids.lock().unwrap().insert(at, (WATER_ID, 27));
+            if glow {
+                r.world.hot.lock().unwrap().push(at);
+            }
+        }
+        let from = r.now;
+        r.burn(20 * 30);
+        let said = r.reply(ALICE, "/weather fires");
+        let by_lava = number_after(&said, "by lava ");
+        if glow {
+            assert!(by_lava > 0.0, "a glowing fluid is lava and lit the grass: {said}");
+            println!("ok  still lava: {by_lava} blazes by lava from a fluid told apart by its glow, {} tufts lit", r.ignitions_since(from).len());
+        } else {
+            assert_eq!(by_lava, 0.0, "a fluid that does not glow is water: {said}");
+            assert!(r.ignitions_since(from).is_empty(), "nothing lit by water");
+            println!("ok  the same fluid without a glow lit nothing");
+        }
+    }
+
+    // 3. Flowing lava pressing on a leaf, reported by the engine's fluid flow
+    // hook; water pressing on another wood's leaf is nothing.
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), prelude, &[]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let (cx, cz) = (ax + 10, az);
+    plant_wood(&r, cx, top, cz);
+    plant_wood(&r, cx + 60, top, cz);
+    let leaves = r.material(LEAVES);
+    let press = |fluid: &str, into: BlockPos| FluidFlowEvent {
+        from: BlockPos::new(into.x - 1, into.y, into.z),
+        into,
+        fluid: fluid.into(),
+        volume: 27,
+        blocked_by: leaves,
+        occupancy: FULL,
+        meets: None,
+    };
+    let leaf = BlockPos::new(cx - 3, top + 5, cz);
+    let other = BlockPos::new(cx + 60 - 3, top + 5, cz);
+    let from = r.now;
+    r.vm.fluid_flow(&press("tiamat_default_world:lava", leaf));
+    r.vm.fluid_flow(&press("tiamat_default_world:water", other));
+    r.ours_ok("fluid flow");
+    r.tick(3);
+    let lit = r.ignitions_since(from);
+    assert!(lit.iter().any(|e| e.1 == leaf), "the leaf lava pressed on caught: {lit:?}");
+    assert!(!lit.iter().any(|e| e.1 == other), "the leaf water pressed on did not: {lit:?}");
+    let said = r.reply(ALICE, "/weather fires");
+    assert_eq!(number_after(&said, "by lava "), 1.0, "{said}");
+    println!("ok  a lava flow pressing on a leaf lit it; `{said}`");
 }
 
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.

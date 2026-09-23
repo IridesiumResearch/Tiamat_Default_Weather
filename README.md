@@ -14,18 +14,19 @@ shape it are in [`AGENTS.md`](AGENTS.md) (vendored from the engine's `api/`),
 
 ```
 mods/tiamat_weather/        the mod (this is what the engine loads)
-  mod.toml                  manifest; the Spindle is an optional dependency, pinned < 0.2
+  mod.toml                  manifest; the Spindle (pinned < 0.2) and Life are optional dependencies; the Wildfires world option
   init.lua                  load order only
   config.lua                every number a designer might turn
   hooks.lua                 one engine registration per hook, many subscribers
   climate.lua               picks the adapter
   climate_spindle.lua       the Spindle's climate, mirrored: humidity, 4t(1-t) warmth, ground overrides
   climate_plain.lua         any other world
-  blocks.lua                snow_layer, rainwater, and damp dirt and sand beside the Spindle
+  blocks.lua                snow_layer, rainwater, damp dirt and sand beside the Spindle, fire and what it leaves
   controller.lua            weather(x, y, z, tick): the front, easing per square, overrides, the HUD line
   queue.lua                 the paced edit queue
   ground.lua                the sampler, snow layers, damp ground, puddles, both thaws
-  fx.lua                    the sky, the rain, the loops, lightning, the cloud deck
+  fire.lua                  blazes: what burns, how far, rain puts it out; lava and lightning start it
+  fx.lua                    the sky, the rain, the loops, lightning that lands, smoke, the cloud deck
   commands.lua              /weather
   exports.lua               what other mods may read: game.exports("tiamat_weather")
   hud.lua                   the client-side HUD script
@@ -64,6 +65,8 @@ the HUD, the particle budget, the rain loop and thunder, restarts and resumes
 the same front, lays a blizzard and a snowfall and checks their caps, thaws
 snow near a player and by random tick, refuses edits to test the backoff,
 leaves puddles and lets them go into rivers or boil off against lava,
+sets a wood and a field alight and holds them to their caps, rains one out,
+restarts mid-fire, lands lightning on a canopy and lights grass from lava,
 puts a roof over everything, loads without the Spindle, and draws the HUD.
 
 ## Commands
@@ -76,11 +79,29 @@ puts a roof over everything, loads without the Spindle, and draws the HUD.
 | `/weather forecast` | The next ten minutes at your square |
 | `/weather mega [years]` | When the next mega storm passes over you, and how many in the next few years |
 | `/weather drift` | Check the mirrored humidity against the Spindle's ground |
-| `/weather stats` | The sampler's, queue's and particles' counts, to the server log |
+| `/weather fires` | How many blazes and blocks are alight, and what lit them |
+| `/weather fire [at <x> <y> <z> \| out]` | Set alight what you are looking at, or the block at those coordinates; `out` puts every fire out |
+| `/weather strike` | A bolt at the column under your crosshair, or six blocks ahead of you |
+| `/weather stats` | The sampler's, queue's, particles' and fire's counts, to the server log |
 
-`set` and `clear` are for operators, by the server's own list
-(`game.is_operator`); `config.commands` can open them to everyone (`true`)
-or close them (`false`).
+`set`, `clear`, `fire` and `strike` are for operators, by the server's own
+list (`game.is_operator`); `config.commands` can open them to everyone
+(`true`) or close them (`false`).
+
+## Wildfires
+
+Lightning lands on the tallest thing within reach, and one strike in three
+on a canopy or a meadow lights it; lava, still or flowing, lights what stands
+beside it. A fire is one blaze that spreads, burns down, and leaves charred
+trunks or a scorched patch that heals. It cannot get out of control, by
+construction: at most four blazes and 120 burning blocks in the world at
+once, a forest blaze no further than 12 blocks from where it started and no
+more than 60 blocks in its life (a field fire 16 and 90), three minutes of
+spreading, a game day's rest for a square that burned, and rain or snow on
+any fire under the sky puts it out. **Wildfires** is a world option, chosen
+when the world is made and fixed for its life; `config.lua` has every
+number. The Spindle's trees and plants are the fuel Weather knows; a plainer
+world has none.
 
 ## What is not here yet
 
@@ -91,6 +112,12 @@ or close them (`false`).
   what Weather exports for other mods.
 - **The cloud floor mirrors the Spindle's dome** until the Spindle exports
   `dome_y`.
+- **Fire hurts nobody** until Life adds `tiamat_weather:fire` to its
+  contact-fire and heat-source tables, one row each, with Weather in its
+  `optional_depends` (see [`docs/exports-contract.md`](docs/exports-contract.md)).
+- **Still lava is found by its light**, because nothing names a standing
+  fluid: a surface holding fluid that glows red is hot. A mod's lava that
+  does not glow is not found, and lights nothing until it flows.
 - **Nothing on the engine sheet is left unbuilt.** The cloud deck is the
   engine's raymarch (2026-09-18), shaped after `docs/reference/`. How fine it
   is drawn is each player's own graphics setting.

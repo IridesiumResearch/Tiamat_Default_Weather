@@ -12,6 +12,12 @@
 --   canopy                numeric material -> true: leaves, under which it is still outdoors
 --   covered               numeric material -> true: ground snow never settles on
 --   hud_row               where hud.lua draws the weather line
+--   fuel                  numeric material -> { catch, burn, residue, kind }: what burns (fire.lua)
+--   scorch                numeric material -> block id: turf a plant fire blackens
+--   hot_blocks            numeric material -> true: solids that light what stands beside them
+--   hot_fluids            fluid id (string) -> true: fluids that do, when they flow
+--   bare                  block id (string) or nil: what scorched ground heals to
+--   unlock_scorched()     asks the Spindle to treat scorched ground as dirt; true if taken
 --
 -- The adapter is picked once, at load. `config.climate = "plain"` forces the
 -- fallback. The Spindle is recognised by one of its blocks being registered:

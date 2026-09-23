@@ -5,7 +5,9 @@
 #
 # The Spindle is an OPTIONAL dependency, pinned below 0.2: its humidity field
 # is mirrored in climate_spindle.lua, and a Spindle that has moved on is
-# refused here rather than silently disagreed with.
+# refused here rather than silently disagreed with. Life is NOT named here,
+# on purpose: Life reads Weather (its thermometer, and the fire block's
+# name), and a dependency both ways is a cycle the engine refuses.
 id = "tiamat_weather"
 name = "Tiamat Weather"
 version = "0.1.0"
@@ -13,3 +15,11 @@ depends = ["core >=0.1"]
 optional_depends = ["tiamat_default_world >=0.1, <0.2"]
 description = "Rain, snow, storms and the ground they leave behind."
 license = "MIT"
+
+# Chosen on the new-world screen and fixed for the life of the world: fire is
+# world state, so it is a world option and not a player setting.
+[[world_option]]
+id = "fires"
+name = "Wildfires"
+description = "Lightning and lava can set trees and grass alight. Fires are small, burn out on their own, and rain puts them out."
+default = 1

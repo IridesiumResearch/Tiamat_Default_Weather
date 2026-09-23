@@ -30,6 +30,11 @@ and answer `nil`.
 in one engine logs `humidity exported, warmth exported, biomes exported; damp
 ground on, puddles on`. Life has not adopted Weather's side yet.
 
+**Status 2026-09-23:** Weather's side grew fire (`fire_at`, `flammable`,
+`ignite`, `extinguish`, `fires`, `on_lightning`), version 1 still, and the
+Spindle's `add_soil_alias` is called once more, for scorched ground. Life is
+asked for two unlocks of its own (the last section) and exports nothing yet.
+
 ## What the Spindle can export for Weather (`tiamat_default_world`)
 
 Weather already names the Spindle in `optional_depends`, so nothing changes
@@ -60,6 +65,14 @@ lazily on first use, because the damp blocks register after the Spindle loads.
 If every call answers `true`, **Weather turns damp ground on**. The alpine's
 random tick registered on `dirt` cannot be extended to a block registered
 later, and that cost is accepted.
+
+**Since 2026-09-23 it is also called with
+`("tiamat_weather:scorched_ground", "tiamat_default_world:dirt")`**, once, at
+load, so the black patch a field fire leaves counts as dirt while it heals
+and the Spindle's grass regrows over it. The same lazy resolution serves:
+scorched ground registers after the Spindle too. Its answer is logged and
+gates nothing — fire is on without it, and the patch heals to dirt by its own
+random tick either way (plan 5.12).
 
 **`add_harmless_fluid(fluid)`** is called with `"tiamat_weather:rainwater"`.
 Since engine 2f9b036 the fluid itself declares `washes = false`, so a mod
@@ -114,6 +127,14 @@ if wx then
     wx.falling_on(player)        -- "rain" | "snow" | "ash" | "dust", only under open sky; nil otherwise
     wx.warmth(x, y, z)           -- 0..1000
     wx.freezing(x, y, z)         -- boolean
+
+    -- Fire (2026-09-23). Block coordinates; fractions are floored.
+    wx.fire_at(x, y, z)          -- boolean: is that block alight
+    wx.flammable(x, y, z)        -- boolean: is it fuel (and holding no fluid)
+    wx.ignite(x, y, z)           -- boolean: light it, under the natural rules
+    wx.extinguish(x, y, z)       -- boolean: put that block out
+    wx.fires()                   -- blocks alight, blazes alight
+    wx.on_lightning(fn)          -- boolean: fn(x, y, z) after every bolt, grounded or not
 end
 ```
 
@@ -122,7 +143,55 @@ answers `nil` and neither mod is disabled. Kinds are `clear`, `cloudy`,
 `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm` and `dust`. Families
 are `dry`, `rain`, `snow`, `ash` and `dust`.
 
+**`ignite` is a natural ignition, not a command.** It obeys every cap
+(`FIRE_MAX_BLAZES`, `FIRE_MAX_BURNING`, a blaze's own block count and
+radius), the square's rest after a blaze and the spacing from a live one, and
+rolls no odds of its own: what your mod asks to burn, burns, if the world
+allows a fire there now. `false` is any of "off in this world", "no fuel",
+"cap", "resting" or "already alight"; the reason is not exported. Only `/weather fire` skips
+the rest and the spacing, and nothing skips the caps (plan 5.12).
+
+**`on_lightning(fn)`** calls `fn(x, y, z)` with the block the flash was
+centred on, after the flash, for every bolt: the block over the ground it
+struck, or — when no column under the bolt answered (unloaded, or nothing
+within 128 blocks) — `STRIKE_ABOVE` (40) blocks over the player, a point in
+the air with nothing under it. Check the ground yourself if a bolt in the
+air should not count. It is a callback passed
+in, so it runs in **your** sandbox: a fault in it disables your mod, not
+Weather, and Weather logs it once and goes on. Register once, at load.
+
 **For Life (`tiamat_default_life`):** `falling_on(player)` is "is this person
 getting wet", and `warmth` or `freezing` is weather's cold. Both fit the
-thermometer and the weather shield. Life would add
-`optional_depends = ["tiamat_weather >=0.1"]`.
+thermometer and the weather shield. `on_lightning` is how Life hurts whoever
+stands beside a strike; what a bolt does to a body is Life's to write.
+
+**Life reads Weather, not the other way round.** Weather does NOT name Life
+in its `optional_depends`: the engine refuses a dependency cycle at load,
+optional edges included, and the direction worth keeping is Life's — the
+thermometer wants `falling_on` and `warmth`, and fire wants Life to know one
+block's name. So Life adds `optional_depends = ["tiamat_weather >=0.1"]`, as
+the 2026-09-17 note said, loads after Weather, and finds every Weather block
+registered by the time it resolves its own tables.
+
+## What Life adds for fire (`tiamat_default_life`)
+
+Life keys `C.contact_fire` and `C.heat_sources` on material NAMES
+(`config.lua`, about lines 206–214) and resolves them at load. With Weather
+in its `optional_depends`, Weather has loaded first and `tiamat_weather:fire`
+exists, so the whole change is two rows and the dependency:
+
+```lua
+-- config.lua
+C.contact_fire["tiamat_weather:fire"] = { damage = 1, ticks = 20, after = 40 }
+C.heat_sources["tiamat_weather:fire"] = 1.0
+```
+
+Standing in a burning block then takes `damage` every `ticks` ticks and
+burns for `after` ticks once out of it, the three fields Life's rows carry
+for magma and the campfire; and a fire warms whoever stands near it as the
+campfire does. Life already resolves every id in those tables with `pcall`,
+so a world without Weather still loads it.
+
+Until this lands, **fire hurts nobody**. Weather says so in its plan (10.14)
+and README. Nothing on Weather's side waits for it: the block is registered,
+named and stable.
