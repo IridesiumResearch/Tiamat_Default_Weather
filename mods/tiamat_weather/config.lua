@@ -85,7 +85,7 @@ return {
     -- The cloud deck (register_clouds), shaped after docs/reference/.
     CLOUD_ABOVE = 400,          -- blocks over the ground the cloud floor sits
     CLOUD_BASE_STEP = 64,       -- the floor moves in steps of this, so walking does not nudge the sky
-    CLOUD_THICKNESS = 160,      -- blocks from the floor to the tallest tower's top
+    CLOUD_THICKNESS = 200,      -- blocks from the floor to the tallest tower's top (160 until 2026-09-23: "a little bit bigger")
     -- Coarse on purpose (2026-09-18): 8-block cubes cost a frame at the
     -- horizon for detail nobody could see. 16 halves the steps a ray takes.
     -- Since engine 0d8e857 the deck is heaps: FREQUENCY spaces them (a heap
@@ -93,7 +93,12 @@ return {
     -- OCTAVES no longer shapes anything.
     CLOUD_CELL = 16,            -- blocks per cube
     CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
-    CLOUD_FREQUENCY = 1 / 500,  -- the field's horizontal scale, cycles per block
+    -- Heaps sit on a lattice 0.42 / FREQUENCY blocks apart, each 0.30 to
+    -- 0.68 of that across, so this is their size as much as their spacing:
+    -- 1/500 was heaps up to 140 blocks wide, 210 apart; 1/680 is up to 190
+    -- wide, 285 apart. The sheet's cells and the mackerel layer's cloudlets
+    -- scale with it too. Raised 2026-09-23, the designer's "a little bigger".
+    CLOUD_FREQUENCY = 1 / 680,  -- the field's horizontal scale, cycles per block
     CLOUD_OCTAVES = 2,
     CLOUD_TOWERS = 0.2,         -- how much taller the highest heaps grow
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second

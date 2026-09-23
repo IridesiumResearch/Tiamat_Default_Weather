@@ -1423,6 +1423,14 @@ Two screenshots from the designer, both kept beside the engine sheet.
   seconds, and a jump only for a player who has gone further than eight
   steps at once, a teleport or the rim from the axis.
 
+- **"The clouds could be a little bit bigger too."** Heaps sit on a lattice
+  `0.42 / CLOUD_FREQUENCY` blocks apart and each is 0.30 to 0.68 of that
+  across, so the frequency is their size as much as their spacing. `1/500`
+  was heaps up to 140 blocks wide, 210 apart; `1/680` is up to 190 wide, 285
+  apart, and the sheet's cells and the mackerel layer's cloudlets scale with
+  it. `CLOUD_THICKNESS` goes from 160 to 200, so they stand taller as well.
+  Both are one number in `config.lua` if the eye wants more or less.
+
 **Checked by `tests/native`:** six evaluations into a forced storm the map's
 cell overhead is part of the way to the storm's darkness, and fully there
 after twenty-five; the floor over the alpine highlands is 320 higher than
