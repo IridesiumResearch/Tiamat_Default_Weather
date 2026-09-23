@@ -1089,8 +1089,39 @@ end)
 local took = climate.unlock_scorched()
 game.log("tiamat_weather: scorched ground as dirt: " .. (took and "taken" or "not offered"))
 
--- Fire hurts nobody until Life adds this block to its contact-fire and
--- heat-source tables (docs/exports-contract.md). That is Life's change, not
--- a call from here: Life reads Weather, so Weather must not name Life.
+-- **Life makes fire hurt** (Life a1d016c, 2026-09-23, docs/exports-contract.md).
+-- Life keys its contact-fire and heat tables on material names and resolves
+-- them at its own load, which is before this mod's, so it exports two
+-- unlocks that keep the name and resolve it on its first tick; this mod
+-- calls both once here, for its fire block. Reading Life's exports is
+-- allowed because mod.toml names it in optional_depends. Without Life, or
+-- on a Life older than the unlocks, fire burns nothing and nobody.
+local LIFE = nil
+if type(game.exports) == "function" then
+    LIFE = game.exports("tiamat_default_life")
+end
+M.life = { contact = false, heat = false, alight = false }
+if LIFE ~= nil then
+    if type(LIFE.add_contact_fire) == "function" then
+        M.life.contact = LIFE.add_contact_fire(M.FIRE, { damage = 1, ticks = 20, after = 40 }) == true
+    end
+    if type(LIFE.add_heat_source) == "function" then
+        M.life.heat = LIFE.add_heat_source(M.FIRE, 1.0) == true
+    end
+    M.life.alight = type(LIFE.set_alight) == "function"
+end
+game.log(string.format("tiamat_weather: fire hurts %s, warms %s, lightning sets alight %s",
+    M.life.contact and "yes" or "no", M.life.heat and "yes" or "no", M.life.alight and "yes" or "no"))
+
+-- Sets a body alight through Life: `target` is a player's UUID (an entity's
+-- `owner`) or an entity id, `ticks` how long it burns. Answers whether
+-- anyone was set alight; false without Life. Not gated on M.enabled: a bolt
+-- hurts whoever it hits whether or not the world's trees may burn.
+function M.set_alight(target, ticks)
+    if not M.life.alight then
+        return false
+    end
+    return LIFE.set_alight(target, ticks) == true
+end
 
 return M

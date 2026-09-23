@@ -104,8 +104,19 @@ impl ent::Access for Entities {
     fn player(&self, uuid: [u8; 32]) -> Option<EntityId> {
         self.0.lock().unwrap().contains_key(&uuid).then(|| EntityId(Self::id_of(uuid)))
     }
-    fn within(&self, _: [f64; 3], _: f64, _: Option<&str>) -> Vec<EntityId> {
-        Vec::new()
+    /// Every body within `radius` of a point: what a landed bolt asks for.
+    fn within(&self, at: [f64; 3], radius: f64, _: Option<&str>) -> Vec<EntityId> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| {
+                let p = e.transform.to_world();
+                let (dx, dy, dz) = (p[0] - at[0], p[1] - at[1], p[2] - at[2]);
+                dx * dx + dy * dy + dz * dz <= radius * radius
+            })
+            .map(|(who, _)| EntityId(Self::id_of(*who)))
+            .collect()
     }
     fn move_player(&self, _: [u8; 32], _: [f64; 3]) -> bool {
         false
@@ -439,6 +450,33 @@ const SPINDLE_STANDIN: &str = "for _, id in ipairs({ 'dirt', 'packed_dirt', 'san
     'oak_leaves', 'tall_grass', 'fern', 'fir_needles', 'fir_log', 'dead_log', 'heather', 'mulch', 'magma', 'lava', 'gorse' }) \
     do game.register_block{ id = id } end";
 
+// The stand-in Life (Life a1d016c): the three functions its exports.lua
+// offers, recording what they are called with. `/life` reads the record back
+// as `contact;heat;alight`.
+const LIFE_STANDIN: &str = r#"
+    life_calls = { contact = {}, heat = {}, alight = {} }
+    game.export{
+        version = 1,
+        add_contact_fire = function(material, spec)
+            life_calls.contact[#life_calls.contact + 1] = material .. ":" .. spec.damage .. "," .. spec.ticks .. "," .. spec.after
+            return true
+        end,
+        add_heat_source = function(material, strength)
+            life_calls.heat[#life_calls.heat + 1] = material .. ":" .. strength
+            return true
+        end,
+        set_alight = function(target, ticks)
+            life_calls.alight[#life_calls.alight + 1] = tostring(target) .. ":" .. ticks
+            return true
+        end,
+    }
+    game.register_on_chat(function(event)
+        if event.text == "/life" then
+            return table.concat(life_calls.contact, " ") .. ";" .. table.concat(life_calls.heat, " ") .. ";" .. table.concat(life_calls.alight, " ")
+        end
+    end)
+"#;
+
 impl Rig {
     fn new(spindle: bool, storage: Arc<Storage>) -> Self {
         Self::with(spindle, storage, "")
@@ -450,16 +488,21 @@ impl Rig {
     /// The whole rig: a Spindle stand-in's source (or none), and mods loaded
     /// AFTER weather as `(id, source, depends)`, for reading its exports.
     fn custom(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])]) -> Self {
-        Self::build(spindle, storage, prelude, after, &[])
+        Self::build(spindle, false, storage, prelude, after, &[])
+    }
+    /// The Spindle and a stand-in Life, both loaded before weather, as the
+    /// resolver orders them from mod.toml's optional_depends.
+    fn beside_life(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str) -> Self {
+        Self::build(spindle, true, storage, prelude, &[], &[])
     }
     /// A rig whose world chose its options on the new-world screen, as
     /// `(qualified id, value)`. Installed before any mod runs, as the loader
     /// does, because `init.lua` reads them.
     fn options(spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, options: &[(&str, WorldOptionValue)]) -> Self {
-        Self::build(spindle, storage, prelude, &[], options)
+        Self::build(spindle, false, storage, prelude, &[], options)
     }
     fn build(
-        spindle: Option<&str>, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])],
+        spindle: Option<&str>, life: bool, storage: Arc<Storage>, prelude: &str, after: &[(&str, &str, &[&str])],
         options: &[(&str, WorldOptionValue)],
     ) -> Self {
         let spindle_id = "tiamat_default_world";
@@ -486,14 +529,20 @@ impl Rig {
         let chosen: Vec<(String, WorldOptionValue)> =
             options.iter().map(|(id, value)| ((*id).to_owned(), value.clone())).collect();
         vm.set_world_options(&chosen);
+        let mut before: Vec<String> = Vec::new();
         if let Some(source) = spindle {
             vm.load_mod(spindle_id, source, &dir).unwrap();
-            // What the resolver tells the VM from mod.toml's optional_depends:
-            // it is what lets weather read the Spindle's exports.
-            vm.note_dependencies(MOD, &[spindle_id.to_owned()]);
+            before.push(spindle_id.to_owned());
         } else {
             vm.load_mod("core", "game.register_block{ id = 'white' }", &dir).unwrap();
         }
+        if life {
+            vm.load_mod("tiamat_default_life", LIFE_STANDIN, &dir).unwrap();
+            before.push("tiamat_default_life".to_owned());
+        }
+        // What the resolver tells the VM from mod.toml's optional_depends: it
+        // is what lets weather read the Spindle's and Life's exports.
+        vm.note_dependencies(MOD, &before);
         let init = format!("{prelude}
 {}", std::fs::read_to_string(dir.join("init.lua")).unwrap());
         vm.load_mod(MOD, &init, &dir).expect("the mod loads");
@@ -645,6 +694,7 @@ fn main() {
     fire_off_check();
     lightning_check();
     fire_lava_check();
+    life_check();
     plain_check();
     hud_check();
     println!("all weather checks passed");
@@ -764,13 +814,20 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(bursts.iter().all(|(_, b)| b.burst.gravity >= 10.0 && b.burst.lifetime < 1.0),
         "no particles but lightning's sparks: the puffs are gone: {:?}", bursts.iter().map(|(_, b)| &b.burst).collect::<Vec<_>>());
     let storm_clouds = r.clouds_of(ALICE).expect("a storm sets the clouds");
-    assert!(storm_clouds.cover >= 0.99 && storm_clouds.darkness >= 0.85, "overcast and dark: {storm_clouds:?}");
+    // Four genera (engine d587fb6, ask W13): a storm is a stratocumulus sheet
+    // under cumulonimbus, dark to the base, with the cumulus heaps thinned.
+    assert!(storm_clouds.darkness >= 0.85, "dark: {storm_clouds:?}");
+    assert!((storm_clouds.cover - 0.40).abs() < 0.01, "the heaps thinned: {storm_clouds:?}");
+    assert!((storm_clouds.stratocumulus - 0.70).abs() < 0.01 && (storm_clouds.cumulonimbus - 0.60).abs() < 0.01,
+        "a sheet under towers: {storm_clouds:?}");
+    assert_eq!(storm_clouds.altocumulus, 0.0, "no mackerel sky in a storm: {storm_clouds:?}");
     let floor = storm_clouds.base.expect("the floor is sent per player");
     let want = ((dome_y(x, 100.0) + 400.0) / 64.0).floor() * 64.0;
     assert_eq!(f64::from(floor), want, "400 over the dome under the player, in steps of 64");
     assert!(storm_clouds.ease_ticks > 0, "a change of weather is eased");
     let said = r.reply(ALICE, "/weather clouds");
-    assert!(said.starts_with("cover 1.00, darkness 0.90"), "{said}");
+    assert!(said.starts_with("cover 0.40, darkness 0.90"), "{said}");
+    assert!(said.contains("stratocumulus 0.70, altocumulus 0.00, cumulonimbus 0.60"), "{said}");
     println!("ok  clouds: deck {deck:?}; storm `{said}`");
 
     // The cover map: sixteen squares a side round Alice's, her own in the
@@ -782,7 +839,9 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert_eq!(map.origin, [((cx - 8) * 256) as f32, ((100_i32.div_euclid(256) - 8) * 256) as f32]);
     assert_eq!((map.cover.len(), map.darkness.len()), (256, 256));
     let middle = 8 * 16 + 8;
-    assert!(map.cover[middle] >= 250 && map.darkness[middle] >= 225, "overhead is the storm: {} {}", map.cover[middle], map.darkness[middle]);
+    // The map carries cumulus and darkness alone (ask W16 is the genera), and
+    // its cell overhead is the sky overhead: the storm's own 0.40 of heaps.
+    assert!((100..=104).contains(&map.cover[middle]) && map.darkness[middle] >= 225, "overhead is the storm: {} {}", map.cover[middle], map.darkness[middle]);
     let calmer = map.darkness.iter().filter(|d| **d < 128).count();
     assert!(calmer > 0, "the storm is not everywhere: every square's darkness is {:?}", &map.darkness[..16]);
     assert!(said.contains("of the 256 squares around you are stormy"), "{said}");
@@ -857,6 +916,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // A clear sky keeps a few white clouds, and the floor has not moved.
     let fair = r.clouds_of(ALICE).expect("a clear sky still sends clouds");
     assert!(fair.cover > 0.0 && fair.cover < 0.3 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
+    assert!(fair.altocumulus > 0.2 && fair.stratocumulus == 0.0 && fair.cumulonimbus == 0.0, "a mackerel sky and nothing heavy: {fair:?}");
     assert_eq!(fair.base, Some(floor));
     let calls = *r.atmosphere.cloud_calls.lock().unwrap();
     r.tick(400);
@@ -1285,7 +1345,8 @@ fn mega_check() {
     assert!(sky.intensity < 0.8 * storm_sky.intensity, "darker: {} against {}", sky.intensity, storm_sky.intensity);
     assert!(sky.fog_distance < 0.8 * storm_sky.fog_distance, "closer fog: {} against {}", sky.fog_distance, storm_sky.fog_distance);
     let clouds = r.clouds_of(ALICE).expect("mega clouds");
-    assert!(clouds.cover >= 0.99 && clouds.darkness >= 0.99, "{clouds:?}");
+    assert!(clouds.cumulonimbus >= 0.99 && clouds.darkness >= 0.99, "supercells, black to the base: {clouds:?}");
+    assert!(clouds.cover < 0.5, "and not a full cumulus deck under them as well: {clouds:?}");
     let before = r.atmosphere.flashes.lock().unwrap().len();
     r.tick(40 * 100);
     let strikes = r.atmosphere.flashes.lock().unwrap().len() - before;
@@ -2026,6 +2087,26 @@ fn fire_lava_check() {
     let said = r.reply(ALICE, "/weather fires");
     assert_eq!(number_after(&said, "by lava "), 1.0, "{said}");
     println!("ok  a lava flow pressing on a leaf lit it; `{said}`");
+}
+
+// Beside Life (a1d016c): weather calls both unlocks at load for its fire
+// block, with the contract's arguments, and a bolt beside Alice sets her
+// alight through the third, by her UUID.
+fn life_check() {
+    // The bolt goes six blocks ahead of her; widen the reach so it counts.
+    let prelude = "wx_overrides = { STRIKE_ALIGHT_RADIUS = 8 }";
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::beside_life(Some(&spindle), Arc::new(Storage::default()), prelude);
+    clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    let told = r.reply(ALICE, "/life");
+    assert_eq!(told, "tiamat_weather:fire:1,20,40;tiamat_weather:fire:1.0;", "the unlocks, once each, at load: {told}");
+    let said = r.reply(ALICE, "/weather strike");
+    assert!(said.starts_with("a bolt at"), "{said}");
+    let hex: String = ALICE.iter().map(|b| format!("{b:02x}")).collect();
+    let told = r.reply(ALICE, "/life");
+    assert!(told.ends_with(&format!(";{hex}:100")), "Alice set alight by the bolt beside her, by UUID: {told}");
+    assert_eq!(told.matches(&hex).count(), 1, "once: {told}");
+    println!("ok  Life's unlocks: `{told}`");
 }
 
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.

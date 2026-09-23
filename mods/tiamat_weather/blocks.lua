@@ -91,7 +91,7 @@ game.register_fluid{
 --
 -- **Fire is a plant, as far as the engine knows.** A billboard cross, so it
 -- reads as flames rather than a glowing cube; `passable`, so a body walks
--- through it (it hurts nobody until Life takes the contact-fire ask, see
+-- through it (and burns, once fire.lua has told Life about this block, see
 -- docs/exports-contract.md); `sway`, so it flickers; `washes_away`, so a
 -- flood or a bucket puts it out without fire.lua having to hear about it;
 -- and `drops = {}`, so digging one yields nothing. fire.lua decides when it

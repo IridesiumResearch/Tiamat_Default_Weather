@@ -719,8 +719,11 @@ storage, written every `FIRE_SAVE_TICKS = 100` while anything burns and read
 on the first turn after the clock is restored. A restart resumes a fire where
 it was; a blaze's keys go when it ends.
 
-**Fire hurts nobody.** That is Life's to do, and the ask is in
-`docs/exports-contract.md`.
+**Fire hurts beside Life.** Life a1d016c exports the two unlocks the
+contract asked for and a third, `set_alight`; `fire.lua` calls the first two
+at load for its fire block, and a landed bolt sets every body within
+`STRIKE_ALIGHT_RADIUS = 3` alight for `STRIKE_ALIGHT_TICKS = 100` (10.15).
+Without Life, fire burns wood and grass and nobody.
 
 ### 5.9 Not buildable yet
 
@@ -1137,6 +1140,7 @@ cubes wide, and altocumulus is the genus the cube size limits most.
 Once it lands: clear a few cumulus and some altocumulus; cloudy all three
 low and mid genera; rain and snow a thick stratocumulus sheet; storm and
 blizzard stratocumulus under cumulonimbus; a mega storm cumulonimbus 1.
+**Landed 2026-09-23** (engine d587fb6), and sent exactly so: 10.15.
 
 ### 10.11 The cover map, forests, and washing (2026-09-22)
 
@@ -1276,11 +1280,8 @@ engine ask.
 
 **Two limits**, both plainly limits and not rules:
 
-- **Fire hurts nobody.** A player can stand in it. Life keys its contact
-  fire and heat sources on material names, so the whole change on its side
-  is a row in each table and `tiamat_weather` in its `optional_depends`
-  (`exports-contract.md`). Weather does not name Life back: the direction
-  Life's thermometer wants is Life reading Weather, and a cycle is refused.
+- **Fire hurt nobody for a day.** Life took the ask the same afternoon
+  (10.15); this limit is gone.
 - **A plain world has no fuel Weather knows.** The fuel table is the
   adapter's, and the plain one is empty, so on any world but the Spindle
   `ignite` answers `no fuel` to everything, lightning scorches nothing and
@@ -1288,3 +1289,62 @@ engine ask.
   not built. And still lava is found by its light: a hot fluid that does not
   glow is water to the sampler.
 
+### 10.15 The asks land: genera, shade, and fire that hurts (2026-09-23)
+
+Later the same day, everything open landed at once, in three repositories.
+
+- **W13, four cloud genera** (engine d587fb6, protocol v73). `set_clouds`
+  takes `stratocumulus`, `altocumulus` and `cumulonimbus` beside `cover`, a
+  share of the sky each. `fx.lua`'s `CLOUDS` table now carries five shares
+  per kind, as 10.10 said it would: clear `cover 0.15, alto 0.25`; cloudy
+  `0.55 / strato 0.40 / alto 0.30`; rain and snow `cover 0.30` under a
+  `strato 0.85` sheet; a storm `cover 0.40, strato 0.70, nimbus 0.60`
+  (a blizzard `nimbus 0.50`); ash a dark sheet, an ash storm the sheet with
+  towers, dust a little of everything. A precipitating kind eases every
+  share from the cloudy sky to its own as its intensity rises. A **mega
+  storm is cumulonimbus 1 and darkness 1** and leaves the cumulus as the kind
+  had it: the engine's own figures put the supercell sky at 2.9–3.7 cumulus
+  decks and a storm's at 1.5–1.6, so a supercell over a full cumulus deck
+  would be the two costliest genera at once for nothing the eye could tell
+  apart. `/weather clouds` names the three shares. An engine older than the
+  genera refuses the fields; the first refusal turns them off, as the map's
+  did, and the sky is cumulus alone.
+- **W11, the deck shades the ground** (the same commit). Nothing to do here:
+  the client draws the deck from below once a frame and darkens the sun
+  term under it, drift included, in every mode but Simple.
+- **W15, the last step** (engine 2749ac8): `Normal` and `Coarse` march the
+  deck at half resolution and lift it into the frame with its depth. The
+  player's own setting; nothing here changes.
+- **The sheet is empty, but one thing is filed: W16.** The cover map (W10)
+  carries `cover` and `darkness` per square and nothing else, and the client
+  reads the genera from the per-player state alone, so a storm's towers stand
+  only over the square the player is in — from the clear valley beside it a
+  storm is 40% cumulus under a dark haze. Sending the storm's whole cover as
+  cumulus would make the distance read overcast, but inside the grid the
+  map's cell REPLACES the per-player `cover` (the cell overhead is the sky
+  overhead), so the same trick puts a full cumulus deck under the towers
+  overhead. The ask is a byte per genus per cell, optional, with today's
+  callers unchanged. Until it lands the map stays cumulus and darkness.
+- **Fire hurts** (Life a1d016c). Life exported what `exports-contract.md`
+  asked for, in the direction the builders wrote it — Life first, Weather
+  calling — and a third function, `set_alight(target, ticks)`, for lightning.
+  `fire.lua` calls `add_contact_fire("tiamat_weather:fire", { damage = 1,
+  ticks = 20, after = 40 })` and `add_heat_source(…, 1.0)` at load and logs
+  what was taken; `fx.lua`'s bolt asks `entities_in_radius` for every body
+  within `STRIKE_ALIGHT_RADIUS = 3` of a landed strike and sets each alight
+  for `STRIKE_ALIGHT_TICKS = 100`, a player by its body's `owner` UUID and a
+  creature by its id. Standing in Weather's fire now burns and sets you
+  alight, a fire warms as a campfire does, animals catch fire and panic, and
+  a struck cow burns. `mod.toml` names Life in `optional_depends` again —
+  for an hour on 2026-09-23 it did not, on the argument that Life should
+  read Weather instead; Life had already built the other direction, and the
+  engine refuses a cycle, so what Life wants from Weather (`falling_on`,
+  `warmth`) is now an open item on the contract page, to cross as a taker
+  Life exports.
+
+**Checked by `tests/native`:** a storm's clouds carry `stratocumulus 0.70`
+and `cumulonimbus 0.60` at `cover 0.40`; a clear sky some altocumulus and no
+towers; a mega storm `cumulonimbus 1`; the cover map's cell overhead is the
+storm's own cumulus share; and beside a stand-in Life that exports the three
+functions, Weather calls both unlocks at load with the contract's arguments
+and a bolt six blocks from Alice sets her alight for 100 ticks, by her UUID.

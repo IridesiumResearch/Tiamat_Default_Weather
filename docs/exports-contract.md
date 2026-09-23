@@ -32,8 +32,12 @@ ground on, puddles on`. Life has not adopted Weather's side yet.
 
 **Status 2026-09-23:** Weather's side grew fire (`fire_at`, `flammable`,
 `ignite`, `extinguish`, `fires`, `on_lightning`), version 1 still, and the
-Spindle's `add_soil_alias` is called once more, for scorched ground. Life is
-asked for two unlocks of its own (the last section) and exports nothing yet.
+Spindle's `add_soil_alias` is called once more, for scorched ground. **Life
+adopted its side the same day** (Life a1d016c): it exports `add_contact_fire`,
+`add_heat_source` and `set_alight`, Weather calls the first two at load for
+its fire block and the third for whoever stands beside a bolt, and fire
+burns. Loading all three mods logs `fire hurts yes, warms yes, lightning sets
+alight yes`.
 
 ## What the Spindle can export for Weather (`tiamat_default_world`)
 
@@ -165,33 +169,45 @@ getting wet", and `warmth` or `freezing` is weather's cold. Both fit the
 thermometer and the weather shield. `on_lightning` is how Life hurts whoever
 stands beside a strike; what a bolt does to a body is Life's to write.
 
-**Life reads Weather, not the other way round.** Weather does NOT name Life
-in its `optional_depends`: the engine refuses a dependency cycle at load,
-optional edges included, and the direction worth keeping is Life's — the
-thermometer wants `falling_on` and `warmth`, and fire wants Life to know one
-block's name. So Life adds `optional_depends = ["tiamat_weather >=0.1"]`, as
-the 2026-09-17 note said, loads after Weather, and finds every Weather block
-registered by the time it resolves its own tables.
+**One direction: Weather reads Life.** Weather names Life in its
+`optional_depends` (`"tiamat_default_life >=0.1"`), so Life loads first and
+Weather may call what it exports. The engine refuses a dependency cycle at
+load, optional edges included, so Life cannot name Weather back: the
+2026-09-17 note that Life would add `optional_depends = ["tiamat_weather
+>=0.1"]` is withdrawn. What Life wants FROM Weather — `falling_on`, `warmth`
+for its thermometer — has to cross the same way as the unlocks, the Spindle's
+pattern in reverse: Life exports a taker, Weather calls it at load with the
+functions Life wants, and they run in Weather's sandbox and fault on Weather.
+That taker is not built; it is the open item on this page.
 
-## What Life adds for fire (`tiamat_default_life`)
+## What Life exports for Weather (`tiamat_default_life`)
 
-Life keys `C.contact_fire` and `C.heat_sources` on material NAMES
-(`config.lua`, about lines 206–214) and resolves them at load. With Weather
-in its `optional_depends`, Weather has loaded first and `tiamat_weather:fire`
-exists, so the whole change is two rows and the dependency:
+Built in Life a1d016c (2026-09-23), version 1. Weather calls the first two
+once at load, for `tiamat_weather:fire`, and the third from a landed bolt:
 
 ```lua
--- config.lua
-C.contact_fire["tiamat_weather:fire"] = { damage = 1, ticks = 20, after = 40 }
-C.heat_sources["tiamat_weather:fire"] = 1.0
+local life = game.exports("tiamat_default_life")     -- nil without Life
+life.add_contact_fire("tiamat_weather:fire", { damage = 1, ticks = 20, after = 40 })  -- true if taken
+life.add_heat_source("tiamat_weather:fire", 1.0)                                      -- true if taken
+life.set_alight(target, ticks)   -- a player's UUID (an entity's `owner`) or one of Life's
+                                 -- creatures (entity id); ticks 1..1200; true if there was anyone
 ```
 
-Standing in a burning block then takes `damage` every `ticks` ticks and
-burns for `after` ticks once out of it, the three fields Life's rows carry
-for magma and the campfire; and a fire warms whoever stands near it as the
-campfire does. Life already resolves every id in those tables with `pcall`,
-so a world without Weather still loads it.
+**`add_contact_fire(material, spec)`**: a body standing in a burning block
+takes `damage` points every `ticks` ticks and burns for `after` ticks once
+out of it — the three fields Life's own `C.contact_fire` rows carry for magma
+and the campfire. Life keeps the NAME and resolves it on its first tick,
+because Weather's block does not exist when Life loads. **`add_heat_source
+(material, strength)`**: a fire warms whoever stands near it as the campfire
+does at 1. Animals catch fire as players do, panic, and burned to death drop
+their meat cooked; anything burning shows flames to everyone near.
 
-Until this lands, **fire hurts nobody**. Weather says so in its plan (10.14)
-and README. Nothing on Weather's side waits for it: the block is registered,
-named and stable.
+**`set_alight(target, ticks)`** is how lightning hurts: after a bolt lands,
+Weather asks `game.entities_in_radius` for every body within
+`STRIKE_ALIGHT_RADIUS` (3) of the strike and sets each alight for
+`STRIKE_ALIGHT_TICKS` (100, Life's own after-lava figure), passing a player's
+`owner` UUID and a creature's entity id. Bolts that found no ground (the
+`STRIKE_ABOVE` fallback) set nobody alight. Every function checks its
+arguments and answers `false` rather than raising, since an error in one
+would disable Life. Without Life, or on a Life older than the unlocks, fire
+burns nothing and nobody, and `fire.lua` logs `fire hurts no`.

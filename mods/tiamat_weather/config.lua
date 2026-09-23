@@ -163,4 +163,6 @@ return {
     FIRE_HEAL_ODDS = 3,          -- one random tick in this many turns scorched ground bare again
     STRIKE_CANDIDATES = 3,       -- ground points tried per strike; the highest is hit
     STRIKE_SCORCH_ODDS = 2,      -- one strike in this many on bare turf leaves a scorch mark
+    STRIKE_ALIGHT_RADIUS = 3,    -- blocks from a landed bolt within which a body is set alight (through Life)
+    STRIKE_ALIGHT_TICKS = 100,   -- and for how long: five seconds, Life's own after-lava figure
 }

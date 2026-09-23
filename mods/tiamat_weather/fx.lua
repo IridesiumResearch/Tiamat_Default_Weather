@@ -127,7 +127,7 @@ local SHARE = { off = 0, low = 1, full = 2 }
 M.stats = {
     precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0,
     -- Lightning that found ground, and what it did there.
-    strikes_grounded = 0, ignitions = 0, scorches = 0,
+    strikes_grounded = 0, ignitions = 0, scorches = 0, set_alight = 0,
     -- Fire, presented.
     fire_loops = 0, smoke = 0,
 }
@@ -370,6 +370,17 @@ local function bolt(square, tick, x, z, rng, top)
             end
         end
     end
+    -- Whoever stands beside a landed bolt burns, through Life (fire.lua's
+    -- `set_alight`; false without Life). A player's body carries its owner's
+    -- UUID, and Life wants the UUID for a player and the id for a creature.
+    if top then
+        for _, id in ipairs(game.entities_in_radius(at, config.STRIKE_ALIGHT_RADIUS)) do
+            local body = game.entity(id)
+            if body ~= nil and wx.fire.set_alight(body.owner or id, config.STRIKE_ALIGHT_TICKS) then
+                M.stats.set_alight = M.stats.set_alight + 1
+            end
+        end
+    end
     tell_listeners(at.x, at.y, at.z)
 end
 
@@ -607,40 +618,60 @@ if HAS_CLOUDS then
     }
 end
 
--- How much of the sky each kind covers, and how grey. A precipitating kind
--- eases from a cloudy sky to its own as its intensity rises, so the deck
--- thickens and darkens as the rain arrives.
+-- The sky over each kind: how much of it each GENUS covers, and how grey.
+-- Four genera since engine d587fb6 (ask W13, 2026-09-23), a share each:
+-- `cover` is cumulus, the heaps; `strato` a low sheet of rolls with grooves
+-- of sky between; `alto` a mid-level mackerel layer; `nimbus` towers under
+-- anvils, supercells at 1. Plan 10.10: clear is a few cumulus and some
+-- altocumulus; cloudy all three low and mid genera; rain and snow a thick
+-- stratocumulus sheet; a storm and a blizzard stratocumulus under
+-- cumulonimbus; a mega storm cumulonimbus 1. A precipitating kind eases from
+-- the cloudy sky to its own as its intensity rises, so the sheet closes and
+-- the towers rise as the rain arrives. The supercell sky costs the client
+-- about three cumulus decks (the engine's own figure), which is why only a
+-- mega storm asks for it.
 M.CLOUDS = {
-    clear     = { cover = 0.15, darkness = 0.0 },
-    cloudy    = { cover = 0.55, darkness = 0.05 },
-    rain      = { cover = 0.80, darkness = 0.45 },
-    storm     = { cover = 1.00, darkness = 0.90 },
-    snow      = { cover = 0.80, darkness = 0.25 },
-    blizzard  = { cover = 1.00, darkness = 0.50 },
-    ash       = { cover = 0.75, darkness = 0.70 },
-    ash_storm = { cover = 1.00, darkness = 1.00 },
-    dust      = { cover = 0.30, darkness = 0.20 },
+    clear     = { cover = 0.15, strato = 0.00, alto = 0.25, nimbus = 0.00, darkness = 0.0 },
+    cloudy    = { cover = 0.55, strato = 0.40, alto = 0.30, nimbus = 0.00, darkness = 0.05 },
+    rain      = { cover = 0.30, strato = 0.85, alto = 0.10, nimbus = 0.00, darkness = 0.45 },
+    storm     = { cover = 0.40, strato = 0.70, alto = 0.00, nimbus = 0.60, darkness = 0.90 },
+    snow      = { cover = 0.30, strato = 0.85, alto = 0.10, nimbus = 0.00, darkness = 0.25 },
+    blizzard  = { cover = 0.40, strato = 0.70, alto = 0.00, nimbus = 0.50, darkness = 0.50 },
+    ash       = { cover = 0.30, strato = 0.70, alto = 0.00, nimbus = 0.00, darkness = 0.70 },
+    ash_storm = { cover = 0.40, strato = 0.80, alto = 0.00, nimbus = 0.50, darkness = 1.00 },
+    dust      = { cover = 0.20, strato = 0.00, alto = 0.20, nimbus = 0.00, darkness = 0.20 },
 }
+local GENERA = { "cover", "strato", "alto", "nimbus", "darkness" }
+-- The engine's spelling of the three new ones.
+local GENUS_FIELD = { strato = "stratocumulus", alto = "altocumulus", nimbus = "cumulonimbus" }
 
 -- What each player was last sent, for /weather clouds.
 M.clouds_sent = {}
 
--- The sky over one kind of weather: cover and darkness, 0 to 1.
+-- The sky over one kind of weather: a table of the five shares, 0 to 1.
 local function sky_of(kind, intensity, mega)
     local row = M.CLOUDS[kind] or M.CLOUDS.clear
-    local cover, darkness = row.cover, row.darkness
+    local sky = {}
     local k = controller.KINDS[kind]
     if k and k.precip then
         local far = intensity / 1000
         local from = M.CLOUDS.cloudy
-        cover = from.cover + (row.cover - from.cover) * far
-        darkness = from.darkness + (row.darkness - from.darkness) * far
+        for _, g in ipairs(GENERA) do
+            sky[g] = from[g] + (row[g] - from[g]) * far
+        end
+    else
+        for _, g in ipairs(GENERA) do
+            sky[g] = row[g]
+        end
     end
-    -- A mega storm closes the sky and blackens it.
+    -- A mega storm is the supercell sky, black to the base: cumulonimbus and
+    -- darkness both go to 1. The cumulus and the sheet are left as the kind
+    -- had them, since a supercell over a full cumulus deck would be the two
+    -- costliest genera at once for nothing the eye could tell apart.
     local up = (mega or 0) / 1000
-    cover = cover + (1 - cover) * up
-    darkness = darkness + (1 - darkness) * up
-    return cover, darkness
+    sky.nimbus = sky.nimbus + (1 - sky.nimbus) * up
+    sky.darkness = sky.darkness + (1 - sky.darkness) * up
+    return sky
 end
 M.sky_of = sky_of
 
@@ -659,7 +690,8 @@ local function cell_sky(cx, cz, tick)
     local key = controller.key_of(cx, cz)
     local square = controller.squares[key]
     if square and square.kind and square.members and #square.members > 0 then
-        return sky_of(square.kind, square.intensity, square.mega)
+        local sky = sky_of(square.kind, square.intensity, square.mega)
+        return sky.cover, sky.darkness
     end
     local c = map_cells[key]
     if c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
@@ -668,7 +700,8 @@ local function cell_sky(cx, cz, tick)
         end
         local x, z = controller.centre_of(cx, cz)
         local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
-        local cover, darkness = sky_of(kind, intensity, mega)
+        local sky = sky_of(kind, intensity, mega)
+        local cover, darkness = sky.cover, sky.darkness
         if c == nil then
             map_kept = map_kept + 1
         end
@@ -706,14 +739,19 @@ local function map_around(square, tick)
     return map, square.cx .. ":" .. square.cz .. ":" .. table.concat(bytes), storms
 end
 
+-- An engine older than the genera (before d587fb6) refuses the three
+-- fields as misspellings; the first refusal turns them off, as the map's.
+local HAS_GENERA = true
+
 local function clouds_for(uuid, where, square, was)
-    local cover, darkness = sky_of(square.kind, square.intensity, square.mega)
+    local sky = sky_of(square.kind, square.intensity, square.mega)
     local base = floor_at(where.x, where.z)
     local map, map_key, storms
     if HAS_MAP then
         map, map_key, storms = map_around(square, wx.now)
     end
-    local key = string.format("%.2f:%.2f:%d:%s", cover, darkness, base, map_key or "")
+    local key = string.format("%.2f:%.2f:%.2f:%.2f:%.2f:%d:%s", sky.cover, sky.darkness,
+        sky.strato, sky.alto, sky.nimbus, base, map_key or "")
     if was.clouds == key then
         return
     end
@@ -723,15 +761,29 @@ local function clouds_for(uuid, where, square, was)
     local first = was.clouds == nil
     was.clouds = key
     local spec = {
-        cover = cover,
-        darkness = darkness,
+        cover = sky.cover,
+        darkness = sky.darkness,
         base = base,
         map = map,
         ease_ticks = first and 0 or config.CLOUD_EASE_TICKS,
     }
-    -- An engine older than the map refuses the field; send without it, once
-    -- and for good.
+    if HAS_GENERA then
+        for short, field in pairs(GENUS_FIELD) do
+            spec[field] = sky[short]
+        end
+    end
+    -- An engine older than the map or the genera refuses the field; send
+    -- without it, once and for good. The genera are tried first, since an
+    -- engine with the map but not the genera is the likelier of the two.
     local ok, err = pcall(game.set_clouds, uuid, spec)
+    if not ok and HAS_GENERA then
+        HAS_GENERA = false
+        game.log("tiamat_weather: this engine takes no cloud genera, so the sky is cumulus alone: " .. tostring(err))
+        for _, field in pairs(GENUS_FIELD) do
+            spec[field] = nil
+        end
+        ok, err = pcall(game.set_clouds, uuid, spec)
+    end
     if not ok then
         if map == nil then
             error(err, 0)
@@ -741,7 +793,9 @@ local function clouds_for(uuid, where, square, was)
         spec.map = nil
         game.set_clouds(uuid, spec)
     end
-    M.clouds_sent[uuid] = { cover = cover, darkness = darkness, base = base, storms = HAS_MAP and storms or nil }
+    M.clouds_sent[uuid] = { cover = sky.cover, darkness = sky.darkness, base = base,
+        stratocumulus = HAS_GENERA and sky.strato or nil, altocumulus = HAS_GENERA and sky.alto or nil,
+        cumulonimbus = HAS_GENERA and sky.nimbus or nil, storms = HAS_MAP and storms or nil }
     M.stats.clouds = M.stats.clouds + 1
 end
 

@@ -112,12 +112,20 @@ world has none.
   what Weather exports for other mods.
 - **The cloud floor mirrors the Spindle's dome** until the Spindle exports
   `dome_y`.
-- **Fire hurts nobody** until Life adds `tiamat_weather:fire` to its
-  contact-fire and heat-source tables, one row each, with Weather in its
-  `optional_depends` (see [`docs/exports-contract.md`](docs/exports-contract.md)).
+- **Fire hurts only beside Life** (Life a1d016c or later): Weather calls
+  Life's `add_contact_fire` and `add_heat_source` at load for its fire block,
+  and `set_alight` for whoever stands within three blocks of a landed bolt.
+  Without Life, fire burns wood and grass and nothing else. See
+  [`docs/exports-contract.md`](docs/exports-contract.md).
+- **A storm over the next valley has no anvil.** The cover map carries
+  cumulus and darkness per square and the genera per player, so the towers
+  are overhead only. Filed with the engine as W16.
 - **Still lava is found by its light**, because nothing names a standing
   fluid: a surface holding fluid that glows red is hot. A mod's lava that
   does not glow is not found, and lights nothing until it flows.
-- **Nothing on the engine sheet is left unbuilt.** The cloud deck is the
-  engine's raymarch (2026-09-18), shaped after `docs/reference/`. How fine it
-  is drawn is each player's own graphics setting.
+- **Everything else on the engine sheet is built.** The cloud deck is the
+  engine's raymarch (2026-09-18), shaped after `docs/reference/`, with four
+  genera since 2026-09-23 — a clear day is a few cumulus and some
+  altocumulus, rain a stratocumulus sheet, a storm the sheet under
+  cumulonimbus, a mega storm supercells — and the deck shades the ground
+  under it. How fine it is drawn is each player's own graphics setting.

@@ -246,8 +246,10 @@ local function clouds(player)
     if pos == nil or was == nil then
         return "no clouds sent to you yet; they follow the first weather evaluation"
     end
-    return string.format("cover %.2f, darkness %.2f, floor at y %d (%d blocks over you); %s; cloud detail is your own graphics setting",
+    return string.format("cover %.2f, darkness %.2f, floor at y %d (%d blocks over you); %s; %s; cloud detail is your own graphics setting",
         was.cover, was.darkness, was.base, was.base - math.floor(pos.y),
+        was.stratocumulus and string.format("stratocumulus %.2f, altocumulus %.2f, cumulonimbus %.2f",
+            was.stratocumulus, was.altocumulus, was.cumulonimbus) or "no cloud genera on this engine",
         was.storms and string.format("%d of the %d squares around you are stormy", was.storms,
             config.CLOUD_MAP_SIZE * config.CLOUD_MAP_SIZE) or "no cover map on this engine")
 end
