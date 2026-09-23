@@ -99,7 +99,14 @@ return {
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
     CLOUD_MAP_SIZE = 16,        -- the cover map around a player, in squares a side (engine max 16)
-    CLOUD_MAP_TICKS = 400,      -- how stale a square nobody is in may be before it is asked again
+    CLOUD_MAP_TICKS = 400,      -- how stale a square nobody is in may be before its weather is asked again
+    CLOUD_MAP_EASE = 0.05,      -- the share of the way a map cell moves toward its weather each evaluation: the square's own EASE
+    -- The floor stands higher where the ground does. The Spindle's Crown has
+    -- mountains up to 0.9 km over the dome (climate_spindle.lua, MIRRORS), and
+    -- a floor CLOUD_ABOVE over the dome sat mid-mountain there. Lifted by
+    -- biome, so a player still climbs above the deck on the highest peaks.
+    CLOUD_LIFT_ALPINE = 320,    -- blocks, over CLOUD_ABOVE, in the alpine highlands
+    CLOUD_LIFT_FROST = 160,     -- and in the frost ring beside them, whose terrain fades into the alpine's
     CANOPY_SCAN = 48,           -- blocks over a player's head a canopy is looked for
     THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes
     MEGA_THUNDER_ODDS = 3,      -- and in a mega storm at full strength

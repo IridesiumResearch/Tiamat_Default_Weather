@@ -56,6 +56,11 @@ function M.surface_y()
     return config.sea_level
 end
 
+-- And nothing to lift the floor for.
+function M.cloud_lift()
+    return 0
+end
+
 function M.override()
     return nil
 end

@@ -695,6 +695,7 @@ fn main() {
     lightning_check();
     fire_lava_check();
     life_check();
+    cloud_lift_check();
     plain_check();
     hud_check();
     println!("all weather checks passed");
@@ -744,7 +745,14 @@ fn weather_check(storage: Arc<Storage>) -> String {
 
     let set = r.reply(ALICE, "/weather set storm 5");
     assert!(set.starts_with("storm over square"), "{set}");
-    r.tick(40 * 25);
+    // Six evaluations in, the cover map's cell overhead is part of the way
+    // to the storm — the map is eased cell by cell, at the square's pace,
+    // since the client draws the cell in place of the player's own shares.
+    r.tick(40 * 6);
+    let easing = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a cover map on the way");
+    let part = easing.darkness[8 * 16 + 8];
+    assert!((40..=160).contains(&part), "the cell overhead eases toward the storm: darkness {part} after six evaluations");
+    r.tick(40 * 19);
     assert_eq!(r.hud(ALICE), "Storm");
     let reply = r.reply(ALICE, "/weather");
     assert!(reply.starts_with("storm at 1000"), "{reply}");
@@ -922,13 +930,29 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(fair.cover > 0.0 && fair.cover < 0.3 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
     assert!(fair.altocumulus > 0.2 && fair.stratocumulus == 0.0 && fair.cumulonimbus == 0.0, "a mackerel sky and nothing heavy: {fair:?}");
     assert_eq!(fair.base, Some(floor));
+    // The map's cell overhead is still easing from the storm to the clear
+    // sky, a twentieth an evaluation, and every step of that is a re-send:
+    // let it finish before looking at a sky that is steady overhead.
+    r.tick(40 * 22);
     let calls = *r.atmosphere.cloud_calls.lock().unwrap();
+    let before = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a map");
+    let plain = r.clouds_of(ALICE).unwrap();
     r.tick(400);
-    // Ten evaluations: overhead nothing changes, and the cover map around it
-    // refreshes a square nobody is in at most every CLOUD_MAP_TICKS, as the
-    // fronts move. So one send at most, not one an evaluation.
+    // Ten evaluations: overhead nothing changes — the cell Alice is under and
+    // her own shares are what they were — while the four kilometres of map
+    // round her go on easing wherever a front is moving, at most one send an
+    // evaluation. A steady sky over one square is never a still world.
+    let after = r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().expect("a map");
+    let middle = 8 * 16 + 8;
+    assert_eq!(
+        (before.cover[middle], before.darkness[middle], before.stratocumulus[middle], before.altocumulus[middle], before.cumulonimbus[middle]),
+        (after.cover[middle], after.darkness[middle], after.stratocumulus[middle], after.altocumulus[middle], after.cumulonimbus[middle]),
+        "the cell overhead is steady"
+    );
+    let still = r.clouds_of(ALICE).unwrap();
+    assert_eq!((plain.cover, plain.darkness, plain.altocumulus, plain.base), (still.cover, still.darkness, still.altocumulus, still.base), "and so are her own shares");
     let sent = *r.atmosphere.cloud_calls.lock().unwrap() - calls;
-    assert!(sent <= 1, "a steady sky sends only the map's own refresh: {sent} in ten evaluations");
+    assert!(sent <= 10, "at most one send an evaluation while distant cells ease: {sent} in ten");
     println!("ok  clear sky: cover {:.2}, darkness {:.2}", fair.cover, fair.darkness);
 
     // The floor follows the dome: at the rim it is kilometres lower than at the axis.
@@ -2111,6 +2135,26 @@ fn life_check() {
     assert!(told.ends_with(&format!(";{hex}:100")), "Alice set alight by the bolt beside her, by UUID: {told}");
     assert_eq!(told.matches(&hex).count(), 1, "once: {told}");
     println!("ok  Life's unlocks: `{told}`");
+}
+
+// In the alpine highlands the cloud floor stands CLOUD_LIFT_ALPINE higher over
+// the dome than elsewhere, by the Spindle's own biome; in the woodlands it
+// does not move.
+fn cloud_lift_check() {
+    for (biome, lift) in [("alpine_highlands", 320.0), ("taiga", 160.0), ("temperate_woodlands", 0.0)] {
+        let spindle = format!(
+            "{SPINDLE_STANDIN}\ngame.export{{ version = 1, biome_under = function(x, y, z) return '{biome}' end }}"
+        );
+        let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "", &[]);
+        let (x, z) = (0.5 * 59000.0, 100.0);
+        let top = r.stand(ALICE, x, z, DIRT);
+        r.join(ALICE, x, f64::from(top + 1), z);
+        r.tick(41);
+        let base = r.clouds_of(ALICE).expect("clouds").base.expect("a floor");
+        let want = ((dome_y(x, z) + 400.0 + lift) / 64.0).floor() * 64.0;
+        assert_eq!(f64::from(base), want, "the floor over {biome}");
+        println!("ok  the cloud floor over {biome}: y {base}, {lift} over the plain floor");
+    }
 }
 
 // Without the Spindle: the plain adapter, no damp blocks, weather still works.

@@ -18,6 +18,8 @@
 --   hot_fluids            fluid id (string) -> true: fluids that do, when they flow
 --   bare                  block id (string) or nil: what scorched ground heals to
 --   unlock_scorched()     asks the Spindle to treat scorched ground as dirt; true if taken
+--   surface_y(x, z)       the ground the clouds float over: the dome, or sea level
+--   cloud_lift(x, y, z)   blocks the cloud floor stands higher at a place: mountains
 --
 -- The adapter is picked once, at load. `config.climate = "plain"` forces the
 -- fallback. The Spindle is recognised by one of its blocks being registered:

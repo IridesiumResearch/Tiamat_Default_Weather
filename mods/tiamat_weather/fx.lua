@@ -595,8 +595,12 @@ M.has_clouds = HAS_CLOUDS
 -- steps of CLOUD_BASE_STEP so walking does not nudge the whole sky. On the
 -- Spindle the ground is a dome falling 2.5 km from the axis to the rim, so
 -- the floor is sent per player, from the dome under them.
-local function floor_at(x, z)
-    local ground = climate.surface_y(x, z)
+-- Lifted where the ground stands high (the climate's `cloud_lift`, by
+-- biome on the Spindle): the Crown's mountains stand up to 0.9 km over the
+-- dome, and a floor CLOUD_ABOVE over the dome sat mid-mountain there. Still
+-- stepped, and still a floor a player can climb above on the highest peaks.
+local function floor_at(x, y, z)
+    local ground = climate.surface_y(x, z) + climate.cloud_lift(x, y, z)
     local step = config.CLOUD_BASE_STEP
     return (math.floor(ground + config.CLOUD_ABOVE) // step) * step
 end
@@ -604,7 +608,7 @@ M.floor_at = floor_at
 
 if HAS_CLOUDS then
     game.register_clouds{
-        base = floor_at(0, 0),
+        base = floor_at(0, 0, 0),
         thickness = config.CLOUD_THICKNESS,
         cell = config.CLOUD_CELL,
         detail = config.CLOUD_DETAIL,
@@ -686,30 +690,71 @@ M.sky_of = sky_of
 local HAS_MAP = true
 local map_cells, map_kept = {}, 0
 
--- The five shares over one cell: `sky_of`'s table, kept a while for a
--- square nobody is in.
+-- **Every cell is eased, and all of them the same way.** Inside the grid
+-- the client draws a cell's shares in place of the player's own, and it
+-- applies a new map at once: so the easing the player's square does for the
+-- rain and the sky never reached the clouds overhead, and a cell that
+-- answered its square's eased state beside cells answering the weather
+-- function's own value drew a lighter box round the player for the forty
+-- seconds a front took to arrive. Now each cell keeps a TARGET (its square's
+-- target where somebody is standing, refreshed every evaluation for
+-- nothing; the function's answer where nobody is, asked again every
+-- CLOUD_MAP_TICKS) and an EASED value that moves CLOUD_MAP_EASE of the way
+-- toward it per evaluation, the pace the square's own intensity moves. The
+-- map is re-sent while anything moves, so the client's snap is a step of a
+-- twentieth. A cell not visited for a while snaps to its target rather than
+-- easing from a stale value, and a cell first seen starts at its target: a
+-- newcomer's sky is there at once. The seam between two cells whose weather
+-- differs is the engine's (ask W18): the map is read nearest-cell.
+local GENUS_KEYS = { "cover", "darkness", "strato", "alto", "nimbus" }
+local STALE_EVALS = 4
+
+local function towards(from, to, by)
+    if from < to then
+        return math.min(to, from + by)
+    end
+    return math.max(to, from - by)
+end
+
 local function cell_sky(cx, cz, tick)
     local key = controller.key_of(cx, cz)
     local square = controller.squares[key]
-    if square and square.kind and square.members and #square.members > 0 then
-        return sky_of(square.kind, square.intensity, square.mega)
-    end
     local c = map_cells[key]
-    if c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
+    local target = nil
+    if square and square.kind and square.members and #square.members > 0 and square.target then
+        target = sky_of(square.target, square.target_intensity, square.target_mega)
+    elseif c == nil or tick - c.tick >= config.CLOUD_MAP_TICKS then
+        local x, z = controller.centre_of(cx, cz)
+        local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
+        target = sky_of(kind, intensity, mega)
+    end
+    if c == nil then
         if map_kept > 8192 then
             map_cells, map_kept = {}, 0
         end
-        local x, z = controller.centre_of(cx, cz)
-        local kind, intensity, mega = controller.weather(x, climate.surface_y(x, z) + 1, z, tick, nil)
-        local sky = sky_of(kind, intensity, mega)
-        if c == nil then
-            map_kept = map_kept + 1
+        map_kept = map_kept + 1
+        local eased = {}
+        for _, g in ipairs(GENUS_KEYS) do
+            eased[g] = target[g]
         end
-        sky.tick = tick
-        c = sky
+        c = { tick = tick, stepped = tick, target = target, eased = eased }
         map_cells[key] = c
+        return eased
     end
-    return c
+    if target ~= nil then
+        c.target, c.tick = target, tick
+    end
+    if tick - c.stepped >= config.EVAL_TICKS then
+        local by = config.CLOUD_MAP_EASE
+        if tick - c.stepped > STALE_EVALS * config.EVAL_TICKS then
+            by = 1.0
+        end
+        c.stepped = tick
+        for _, g in ipairs(GENUS_KEYS) do
+            c.eased[g] = towards(c.eased[g], c.target[g], by)
+        end
+    end
+    return c.eased
 end
 
 -- A cell with towers over it: what /weather clouds counts as stormy. A quarter
@@ -765,9 +810,28 @@ end
 -- fields as misspellings; the first refusal turns them off, as the map's.
 local HAS_GENERA = true
 
+-- Further than this many steps of the floor is a journey, not a walk.
+local BASE_SNAP_STEPS = 8
+
 local function clouds_for(uuid, where, square, was)
     local sky = sky_of(square.kind, square.intensity, square.mega)
-    local base = floor_at(where.x, where.z)
+    -- The floor moves a step an evaluation toward where it should be, since
+    -- the client applies `base` as it arrives: at the alpine border the deck
+    -- climbs its lift over ten seconds rather than jumping it. A player who
+    -- has gone far (a teleport, the rim from the axis) gets the floor there
+    -- at once, because a deck sinking for a minute after a /tp is worse than
+    -- a jump nobody saw the start of.
+    local target = floor_at(where.x, where.y, where.z)
+    local step = config.CLOUD_BASE_STEP
+    local base = was.base or target
+    if math.abs(target - base) > BASE_SNAP_STEPS * step then
+        base = target
+    elseif base < target then
+        base = math.min(target, base + step)
+    elseif base > target then
+        base = math.max(target, base - step)
+    end
+    was.base = base
     local map, map_key, storms
     if HAS_MAP then
         map, map_key, storms = map_around(square, wx.now)

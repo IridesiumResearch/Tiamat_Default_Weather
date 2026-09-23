@@ -204,6 +204,30 @@ function M.warmth(x, y, z)
     return value
 end
 
+-- The cloud floor's lift over CLOUD_ABOVE, by biome. MIRRORS
+-- alpine_highlands.lua RIDGE_AMP: the Crown's ridges sum to about 0.9 km over
+-- the dome, and shape.lua cold_terms: Frostmoor (frozen_wastes) and Firwold
+-- (taiga) cross-fade into the alpine's mountains. Elsewhere the world's
+-- relief is a few hundred blocks and CLOUD_ABOVE clears it.
+local CLOUD_LIFT = {
+    alpine_highlands = config.CLOUD_LIFT_ALPINE,
+    frozen_wastes = config.CLOUD_LIFT_FROST,
+    taiga = config.CLOUD_LIFT_FROST,
+}
+
+-- Blocks the cloud floor is lifted over a place: by the Spindle's own biome
+-- where it exports one, none where it does not (or before the world opens).
+function M.cloud_lift(x, y, z)
+    if SPINDLE_BIOME == nil or game.world_seed == nil then
+        return 0
+    end
+    local biome = SPINDLE_BIOME(math.floor(x), math.floor(y), math.floor(z))
+    if type(biome) ~= "string" then
+        return 0
+    end
+    return CLOUD_LIFT[biome] or 0
+end
+
 -- ------------------------------------------------------------ wind
 
 -- Rim-ward, normalised by |x| + |z| rather than a square root.

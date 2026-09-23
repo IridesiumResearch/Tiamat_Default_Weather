@@ -1375,3 +1375,55 @@ terrain has it, and in the shader the three sun terms faded out over the last
 few degrees before the sun sets — `horizon = smoothstep(-0.15, 0.0,
 toward_sun.y)` — so golden hour still lights the bases and the night lights
 nothing. With both, a night deck is the sky-lit `shade * sky` alone: dark.
+
+### 10.17 Seams in the sky, and the alpine floor (2026-09-23)
+
+Two screenshots from the designer, both kept beside the engine sheet.
+
+- **A straight vertical seam through the deck, the cloud cut along it**
+  (`map-seam-2026-09-23.webp`, Temperate Woodlands, light rain), and in the
+  Crown a slab with a flat vertical wall (`map-chopped-2026-09-23.webp`).
+  Both are the cover map's cell edges. The client reads the map
+  **nearest-cell** — its comment says an interpolated boundary "buys nothing
+  a player could see" — and since W16 the five shares vary per cell, so a
+  cell in rain beside a cell in storm draws a sheet at 0.85 against towers
+  at 0.60 with a plane between them, and a genus a cell has and its
+  neighbour has not ends in a wall. Two halves of it are Weather's to
+  answer for, and one is fixed here: a square somebody stood in answered
+  its EASED state while every other cell answered the weather function's
+  own value, so for the forty seconds a front took to arrive the player's
+  own square was a lighter box in the map, edged on all four sides; and the
+  client applies a new map at once, so the easing `set_clouds` asks for
+  never reached the clouds overhead at all — inside the grid the cell
+  replaces the player's own shares. Now **every cell is eased**: each keeps a
+  target (its square's target where somebody stands, the function's answer
+  elsewhere, refreshed every `CLOUD_MAP_TICKS`) and moves `CLOUD_MAP_EASE`
+  (0.05) of the way toward it per evaluation, the pace the square's own
+  intensity moves; the map is re-sent while anything moves, so the client's
+  snap is a step of a twentieth. The seam that is left is where two cells'
+  weather really differs, and that is the engine's: **W18** asks for the map
+  to be read filtered — bilinear across cell centres, which is the texture
+  sampler's one fetch if the grid is uploaded as a texture — so a front is a
+  gradient a cell wide rather than a plane, and for the map's arrival to be
+  eased on the client as the plain shares are, so a re-sent map does not
+  step.
+- **The alpine deck was too low.** The floor is `CLOUD_ABOVE` (400) over the
+  Spindle's base dome, and the Crown's mountains stand up to 0.9 km over the
+  dome (`alpine_highlands.lua`, `RIDGE_AMP`), so the designer stood above
+  the clouds on a modest peak. The climate adapter gains `cloud_lift(x, y,
+  z)`: on the Spindle, by its exported biome — `CLOUD_LIFT_ALPINE` (320) in
+  the alpine highlands, `CLOUD_LIFT_FROST` (160) in Frostmoor and Firwold,
+  whose terrain fades into the alpine's — and nothing elsewhere or on a
+  plain world. The floor is still stepped by 64 and still a floor: the
+  highest peaks reach through it, which the designer liked. The lift changes
+  at a biome border, and the client applies `base` as it arrives (it eases
+  nothing of the deck's own state — `ease_ticks` on `set_clouds` is carried
+  and never read, which W18 says too), so the floor is eased here: a step of
+  64 per evaluation toward where it should be, the whole lift in ten
+  seconds, and a jump only for a player who has gone further than eight
+  steps at once, a teleport or the rim from the axis.
+
+**Checked by `tests/native`:** six evaluations into a forced storm the map's
+cell overhead is part of the way to the storm's darkness, and fully there
+after twenty-five; the floor over the alpine highlands is 320 higher than
+over the woodlands, and over the taiga 160.
