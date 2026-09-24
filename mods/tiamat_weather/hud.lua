@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- The weather, as one line at the top of the screen. Runs on the CLIENT,
 -- once a frame, and sees only what controller.lua sent this player with

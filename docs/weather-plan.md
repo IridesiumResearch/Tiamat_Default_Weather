@@ -46,7 +46,8 @@ random-ticks its own blocks.
 touching the world mod.
 
 **Licence and reuse.** The Spindle is GPL-3.0-only. This mod may take any
-licence (MIT suggested, matching `api/`). With the climate behind an adapter
+licence; it was MIT until 2026-09-24 and is now GPL-3.0-only with its own
+Additional Permission (README, "Licence"). With the climate behind an adapter
 (section 3), it can run on worlds other than the Spindle.
 
 **What it costs**, and how each cost is handled:
@@ -92,7 +93,7 @@ version = "0.1.0"
 depends = ["core >=0.1"]
 optional_depends = ["tiamat_default_world >=0.1, <0.2"]
 description = "Rain, snow, storms and the ground they leave behind."
-license = "MIT"
+license = "GPL-3.0-only"
 ```
 
 [checked] `optional_depends` is load order only: if the Spindle is

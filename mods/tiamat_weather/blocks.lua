@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- This mod's materials: fresh snow, rainwater, fire and what fire leaves,
 -- and the damp versions of the Spindle's dirt and sand.

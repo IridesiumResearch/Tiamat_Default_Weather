@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- The climate adapter: everything outside climate_*.lua asks only this.
 --

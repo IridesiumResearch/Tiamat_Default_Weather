@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- The paced edit queue: a smaller, more conservative version of the
 -- Spindle's edits.lua, because two mods now spend the relight budget

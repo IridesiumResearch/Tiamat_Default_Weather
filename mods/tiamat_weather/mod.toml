@@ -16,7 +16,7 @@ version = "0.1.0"
 depends = ["core >=0.1"]
 optional_depends = ["tiamat_default_world >=0.1, <0.2", "tiamat_default_life >=0.1"]
 description = "Rain, snow, storms and the ground they leave behind."
-license = "MIT"
+license = "GPL-3.0-only"
 
 # Chosen on the new-world screen and fixed for the life of the world: fire is
 # world state, so it is a world option and not a player setting.

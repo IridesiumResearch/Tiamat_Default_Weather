@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Iridesium
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // The mod, run for real: the engine's script VM with a fake server around it.
 //

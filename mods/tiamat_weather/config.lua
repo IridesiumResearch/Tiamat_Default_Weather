@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- Switches and tunables. Every number a designer might turn is here, with
 -- what it does; docs/weather-plan.md section 9 is where they came from.

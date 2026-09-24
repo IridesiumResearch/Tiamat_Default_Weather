@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- Fire (plan 5.12): what lightning and lava start, what it spreads to, and
 -- what puts it out.

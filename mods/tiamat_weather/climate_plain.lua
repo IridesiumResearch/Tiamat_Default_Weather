@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- The plain adapter, for any world this mod knows nothing about: moisture
 -- is this mod's own noise, warmth falls with height above `config.sea_level`,

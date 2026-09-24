@@ -101,8 +101,8 @@ Deferred by agreement: the coarse cover map, and cloud shadows on the ground.
 `base` is a number with a per-player override, not a density, and Weather
 sends each player a floor that follows the dome under them.
 
-**The target is two reference images** the designer supplied (kept with this
-sheet as `docs/reference/clouds-1.webp` and `clouds-2.webp`): a golden-hour
+**The target is two reference images** the designer supplied (third-party,
+and removed from this repository on 2026-09-24 for that reason): a golden-hour
 sky full of **voxel cumulus**. Nothing a mod can send gets there. Particle
 puffs were built as a stand-in (plan 5.1) and have been shown not to
 converge: they are sprites at most 4 blocks across, drawn within 128 blocks,

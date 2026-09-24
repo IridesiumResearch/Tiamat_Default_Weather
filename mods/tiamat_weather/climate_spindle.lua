@@ -1,4 +1,5 @@
--- SPDX-License-Identifier: MIT
+-- SPDX-FileCopyrightText: Iridesium
+-- SPDX-License-Identifier: GPL-3.0-only
 --
 -- The Spindle adapter: its climate, READ FROM ITS EXPORTS where it offers
 -- them, and mirrored where it does not.

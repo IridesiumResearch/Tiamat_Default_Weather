@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Iridesium
+# SPDX-License-Identifier: GPL-3.0-only
 """Generates the textures for mods/tiamat_weather/textures.
 
 One flat colour per block, the Spindle's convention: variation across a
