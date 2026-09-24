@@ -1448,3 +1448,64 @@ Both filed and built in one afternoon.
   client over the ticks `set_clouds` names, the map cell by cell from the
   previous map. This side stops easing map cells (10.17) and the floor, and
   sends `ease_ticks = 0` for a journey as well as a first sky.
+
+### 10.19 The deck's cost, measured, and the clouds a size bigger again (2026-09-23)
+
+The designer: "on lower end machines these clouds are causing some pretty
+good fps lag ... it might be helpful to have two or three different
+resolutions of clouds as well with the lowest resolution being the default.
+The clouds also seem kind of small to me. I would make the average cloud
+about 25% bigger and the big clouds about 75% bigger."
+
+**Measured first.** The engine's own probes run at 320 x 240 and, on this
+machine's card (an RTX 5070 Ti), the deck's share drowns in timing noise. So
+a probe of Weather's own deck at 1920 x 1080, Beautiful, median of nine
+frames, the deck's cost over a bare sky — every tier, the six skies players
+see most, and the knobs this side could turn. The source is beside the
+engine sheet (`deck-cost-probe-2026-09-23.rs`); it was run in the engine's
+test file and taken out again. Milliseconds, this card; a card twenty times
+slower is twenty times these.
+
+| view | tier | clear | cloudy | rain | storm | mega |
+|---|---|---|---|---|---|---|
+| level | Coarse | 0.31 | 0.30 | 0.11 | 0.59 | 0.36 |
+| level | Normal (default) | 0.34 | 0.32 | 0.15 | 0.34 | 0.34 |
+| level | Fine | 1.56 | 1.43 | 0.78 | 1.49 | 1.56 |
+| 45° up | Coarse | 0.49 | 0.44 | 0.23 | 0.53 | 0.55 |
+| 45° up | Normal | 0.60 | 0.59 | 0.43 | 0.85 | 0.83 |
+| 45° up | Fine | 3.52 | 3.07 | 1.87 | 3.47 | 3.55 |
+| above the deck | Coarse | 0.94 | 0.99 | 0.98 | 1.69 | 1.74 |
+| above the deck | Normal | 1.21 | 1.34 | 1.34 | 2.26 | 2.44 |
+| above the deck | Fine | 8.01 | 8.63 | 8.35 | 14.74 | 16.21 |
+
+Two things fall out of it. **`Fine` is five to seven times `Normal`** in
+every view — full resolution is four times the pixels and half-size cubes
+twice the steps — and `Coarse` is barely cheaper than `Normal`, because it
+spends its double-size cubes on a longer reach (6 km against 4). The ladder
+is Off, about-the-same, about-the-same, six-times, with the default on the
+second rung; a low-end machine on `Fine` above a storm is a slideshow, and
+on `Normal` looking up it still pays a frame's worth. The tiers are the
+engine's, so that is **W19**: three real rungs — a quarter-resolution
+`Low` as the default with the shorter reach and without the self-shadow,
+`Medium` at half, `High` at full — spaced so each is about four times the
+one below.
+
+And **this side's knobs are modest**, under the cloudy sky and the storm at
+`Normal`: cube 24 saves a seventh (1.37 to 1.14 ms above the deck, 0.62 to
+0.54 at 45°), cube 32 a quarter, surface `detail` 1 saves nothing at all
+(1.48 against 1.37 — noise), thickness 140 a tenth, the bigger heaps below
+nothing (±5%), and altocumulus on a clear day three to fifteen percent
+(0.34 against 0.25 level). So: **`CLOUD_CELL` 16 → 24** — the heaps have
+grown 1.7 times since 16 was chosen, so 24 keeps the cubes-per-cloud 16
+gave — and everything else stays: the detail is the look, the thickness was
+just raised, and the mackerel sky was asked for.
+
+**Bigger again.** A heap's radius is `spacing * (0.30 + 0.38 * sqrt(strength))`,
+spacing `0.42 / CLOUD_FREQUENCY`, so the one number this side has scales
+every heap alike. `1/680` → `1/850`: every heap a quarter bigger, 215 to
+485 blocks across on a lattice 357 apart, which is the average the designer
+asked for. Big clouds growing MORE than small ones is the curve's top end,
+and the curve is the engine's: **W20** asks for `0.30 + 0.53 * sqrt(strength)`
+(the largest heap 0.83 of the spacing rather than 0.68, 1.5 times its size
+before today with the quarter here) or `0.60` for the full 1.75 — either
+way the strong heaps overlap into banks, which is what a big cloud is.

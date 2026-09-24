@@ -90,15 +90,23 @@ return {
     -- horizon for detail nobody could see. 16 halves the steps a ray takes.
     -- Since engine 0d8e857 the deck is heaps: FREQUENCY spaces them (a heap
     -- every 0.42 / FREQUENCY blocks), THICKNESS sets how tall they grow, and
-    -- OCTAVES no longer shapes anything.
-    CLOUD_CELL = 16,            -- blocks per cube
+    -- OCTAVES no longer shapes anything. 24 since 2026-09-23 (plan 10.19):
+    -- the heaps have grown 1.7 times since 16 was chosen, so 24 keeps the
+    -- cubes-per-cloud 16 gave, and it is a seventh off the deck's cost on
+    -- every view measured; 32 would be a quarter off and reads as blocks.
+    CLOUD_CELL = 24,            -- blocks per cube
     CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
-    -- Heaps sit on a lattice 0.42 / FREQUENCY blocks apart, each 0.30 to
-    -- 0.68 of that across, so this is their size as much as their spacing:
-    -- 1/500 was heaps up to 140 blocks wide, 210 apart; 1/680 is up to 190
-    -- wide, 285 apart. The sheet's cells and the mackerel layer's cloudlets
-    -- scale with it too. Raised 2026-09-23, the designer's "a little bigger".
-    CLOUD_FREQUENCY = 1 / 680,  -- the field's horizontal scale, cycles per block
+    -- Heaps sit on a lattice 0.42 / FREQUENCY blocks apart, each with a
+    -- RADIUS of 0.30 to 0.68 of that spacing (the engine's curve, by the
+    -- heap's own strength), so this is their size as much as their spacing:
+    -- 1/500 was heaps 125 to 285 blocks across, 210 apart; 1/680 was 170 to
+    -- 390 across, 285 apart; 1/850 is 215 to 485 across, 357 apart. The
+    -- sheet's cells and the mackerel layer's cloudlets scale with it too.
+    -- Raised twice on 2026-09-23: "a little bigger", then "the average cloud
+    -- about 25% bigger and the big clouds about 75%" — the second quarter is
+    -- this number, and the rest of the big ones' growth is the engine's
+    -- curve (ask W20), since one number scales every heap alike.
+    CLOUD_FREQUENCY = 1 / 850,  -- the field's horizontal scale, cycles per block
     CLOUD_OCTAVES = 2,
     CLOUD_TOWERS = 0.2,         -- how much taller the highest heaps grow
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
