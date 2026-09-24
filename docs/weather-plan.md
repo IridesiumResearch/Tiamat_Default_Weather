@@ -1509,3 +1509,37 @@ and the curve is the engine's: **W20** asks for `0.30 + 0.53 * sqrt(strength)`
 (the largest heap 0.83 of the spacing rather than 0.68, 1.5 times its size
 before today with the quarter here) or `0.60` for the full 1.75 — either
 way the strong heaps overlap into banks, which is what a big cloud is.
+
+### 10.20 W19 and W20 land, and the cut clouds (2026-09-24)
+
+- **W19 landed** (engine b29b43f): three rungs four times apart, `Low` the
+  default — a quarter of the frame on each axis, double cubes, three
+  kilometres, no rind and no self-shadow — then `Medium` (what `Normal`
+  was) and `High` (what `Fine` was); old names in a config file still read
+  onto the rung they meant, and the settings screen has a `Clouds` choice
+  with each rung's cost written beside it. Weather's probe is in the engine
+  tree as `how_long_weathers_deck_costs_by_knob`, on the new rungs, sized by
+  `TIAMAT_PROBE_SIZE`; the real-card numbers are the designer's to take.
+- **W20 landed** (the same commit): the heap curve's top is 0.53, the floor
+  untouched, and the search's reach 0.85 cells. Straight down from 2,200
+  blocks at cover 0.30 the widest cloud went from 290 to 427 px — two strong
+  neighbours as one bank, 1.47 times — while the smallest stayed 22 to 24,
+  and fifty separate clouds became thirty-four. With this side's quarter on
+  `frequency` (10.19) that is the designer's 1.5 on the big end; 0.60 was
+  not taken, since the three-by-three search would not have held it.
+- **The cut clouds, filed as W21.** The designer, after W20: "especially the
+  big clouds seem to get cut in half quite often" — a domed heap sliced by
+  a vertical plane, a tower with a sheared face. Read in `column_at`: every
+  genus decides a cloud's presence and size from the weather at the COLUMN
+  being marched — cumulus by `threshold(cover)` and `strength`,
+  cumulonimbus by its keep test and `scale(cb)`, the sheet by `area` and
+  `groove` — so across any gradient in the sky the same heap is kept from
+  the columns on one side of the share's iso-line and dropped from the
+  other, its radius shrinking toward the line. A front always had one such
+  line; W16 put one at every cell; W18 made it a curve through the cell
+  rather than a step at its edge; W20 made the strong heaps wide enough to
+  straddle it. Nothing here reaches it: the gradient is the weather, and a
+  map without gradients is one sky everywhere. The ask is to decide each
+  cloud from the weather at its own centre — one filtered read per
+  candidate that passes the reach test — and keep the column's weather for
+  the darkness alone. Until it lands, a heap on a front's line is two.

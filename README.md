@@ -120,6 +120,10 @@ world has none.
 - **Still lava is found by its light**, because nothing names a standing
   fluid: a surface holding fluid that glows red is hot. A mod's lava that
   does not glow is not found, and lights nothing until it flows.
+- **A big cloud can be cut by a vertical plane** wherever the sky has a
+  gradient: the client decides each heap from the cover at the column it is
+  marching rather than at the heap's own centre, so a front's iso-line
+  slices the heaps that straddle it. Filed with the engine as W21.
 - **Everything else on the engine sheet is built.** The cloud deck is the
   engine's raymarch (2026-09-18), shaped after `docs/reference/`, with four
   genera since 2026-09-23 — a clear day is a few cumulus and some
