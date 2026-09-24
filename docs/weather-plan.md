@@ -1542,4 +1542,12 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   map without gradients is one sky everywhere. The ask is to decide each
   cloud from the weather at its own centre — one filtered read per
   candidate that passes the reach test — and keep the column's weather for
-  the darkness alone. Until it lands, a heap on a front's line is two.
+  the darkness alone. **Landed the same morning** (engine 8b7cbef): a heap
+  asks `weather_at` at its own point for its threshold and strength, a
+  tower at its centre for whether it stands and how tall, the sheet and the
+  layer at the lattice point of their area noise; the column's weather is
+  the darkness alone. The engine's gate is not the ask's — four silhouette
+  metrics could not tell a cut heap from a cube's edge — but measures the
+  mechanism: a map clear everywhere but one wet square, seen from above,
+  where the old rule drew a square cloud and the new one lets a heap
+  centred in the square reach past its edge. Nothing changes on this side.
