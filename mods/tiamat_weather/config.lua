@@ -39,10 +39,17 @@ return {
     TICKS_PER_Y = 600,          -- ticks per unit of the noise's time axis
     DRIFT_TICKS = 40,           -- ticks per block the front drifts along x
 
-    -- Thresholds on front + moisture, which runs about -1..1.
-    CLOUDY_AT = -0.05,
-    RAIN_AT = 0.10,
-    STORM_AT = 0.25,
+    -- Thresholds on front + MOISTURE_WEIGHT * moisture, which runs about -1..1.
+    -- Retuned 2026-09-25 ("it rains far too often"), by `/weather survey`
+    -- over twelve places across the dome: at weight 1 and 0.10 / 0.25 rain
+    -- or snow fell 41% of the year and storms 27%, and the wettest place
+    -- stormed 60% of it, because the humidity field is so wide that a wet
+    -- place was wet for good. Now 18% falling, 7% storm, 31% at the wettest.
+    -- The weight is what keeps a wet belt wetter without making it a monsoon.
+    MOISTURE_WEIGHT = 0.4,
+    CLOUDY_AT = 0.10,
+    RAIN_AT = 0.32,
+    STORM_AT = 0.46,
 
     -- ---------------------------------------------------------- mega storms
     -- Everything a storm does, turned up to 11, about twice a year at any
@@ -121,8 +128,11 @@ return {
     CLOUD_LIFT_ALPINE = 320,    -- blocks, over CLOUD_ABOVE, in the alpine highlands
     CLOUD_LIFT_FROST = 160,     -- and in the frost ring beside them, whose terrain fades into the alpine's
     CANOPY_SCAN = 48,           -- blocks over a player's head a canopy is looked for
-    THUNDER_ODDS = 12,          -- one in this many storm evaluations strikes
-    MEGA_THUNDER_ODDS = 3,      -- and in a mega storm at full strength
+    -- One in this many storm evaluations (EVAL_TICKS apart) strikes: about
+    -- one bolt every eight seconds in a storm. 12 until 2026-09-25, one every
+    -- twenty-four, and "lightning is too rare".
+    THUNDER_ODDS = 4,
+    MEGA_THUNDER_ODDS = 2,      -- and in a mega storm at full strength
     HUD_ROW_SPINDLE = 78,       -- below the Spindle's biome name (y = 44, size 26)
     HUD_ROW_PLAIN = 44,
 
@@ -140,11 +150,18 @@ return {
     BLIZZARD_LAYERS = 3,        -- the cap in a BLIZZARD: one whole block, never more
     DRY_AFTER_TICKS = 1200,     -- damp ground near a player dries this long after the rain
     THAW_MEMORY_TICKS = 72000,  -- a square that snowed within this still gets near-player thaw samples
-    PUDDLE_ONE_IN = 8,          -- one sampled column in this many gets rainwater: puddles, not a film
+    -- Puddles, retuned 2026-09-25 ("rain creates way too many water
+    -- sources"). A puddle that has finished spreading leaves the engine's
+    -- fluid solver, and evaporation is rolled only on a solver visit, so a
+    -- settled puddle never dried at all (engine ask W24): every one a storm
+    -- ever laid was still there. Fewer and smaller now, and the sampler
+    -- dries what it finds once the rain has been gone PUDDLE_DRY_AFTER_TICKS.
+    PUDDLE_ONE_IN = 32,         -- one sampled column in this many gets rainwater: puddles, not a film
     PUDDLE_CELLS = 3,           -- cells of rainwater a sampled column gets in RAIN
-    STORM_PUDDLE_CELLS = 6,     -- and in a STORM
-    MEGA_PUDDLE_CELLS = 12,     -- and in a mega storm
-    RAIN_EVAPORATES = 300,      -- one cell in this many fluid ticks (10 Hz): 3 cells in the open last about 90 s
+    STORM_PUDDLE_CELLS = 4,     -- and in a STORM
+    MEGA_PUDDLE_CELLS = 8,      -- and in a mega storm
+    PUDDLE_DRY_AFTER_TICKS = 600, -- rainwater near a player is dried this long after the rain
+    RAIN_EVAPORATES = 100,      -- one cell in this many fluid ticks (10 Hz), while a puddle is still moving
 
     -- ---------------------------------------------------------- fire
     -- Plan 5.12. "Not out of control" is the first requirement, so every

@@ -38,7 +38,7 @@ local M = {}
 M.stats = {
     turns = 0, no_room = 0, columns = 0, unloaded = 0, buried = 0, roofed = 0, wet = 0,
     not_support = 0, layered = 0, grown = 0, capped = 0, thawed = 0, damped = 0, dried = 0,
-    tick_thaws = 0, tick_dries = 0, tick_budget = 0, puddles = 0, joined = 0, steamed = 0,
+    tick_thaws = 0, tick_dries = 0, tick_budget = 0, puddles = 0, puddles_dried = 0, joined = 0, steamed = 0,
 }
 
 local SNOW = blocks.SNOW
@@ -78,6 +78,39 @@ local function holds_puddle(material)
     end
     resolve_damp()
     return ground[material] or ground[dry_id_of[material] or -1] or false
+end
+
+-- ------------------------------------------------------------ rainwater's id
+
+-- `surface_at` names a fluid by its numeric id, which is per session, and
+-- nothing turns "tiamat_weather:rainwater" into one. So it is read off the
+-- world once a session: one cell written into an empty block of sky over a
+-- player, read back, and cleared again in the same call, before the fluid
+-- solver has had a tick to look at it. Net nothing. Until it is known
+-- nothing is dried, which is the safe way round: a pond is never mistaken
+-- for a puddle.
+local PROBE_ABOVE = 32
+local BESIDE = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local rain_fluid = nil
+
+local function learn_rain_fluid(where)
+    local at = { x = math.floor(where.x), y = math.floor(where.y) + PROBE_ABOVE, z = math.floor(where.z) }
+    -- Empty means no terrain and no fluid: nothing there to disturb.
+    if game.surface_at{ x = at.x, z = at.z, from = at.y, depth = 1 } ~= nil then
+        return
+    end
+    local b = game.get_block(at)
+    if b == nil or b.occupancy ~= 0 then
+        return
+    end
+    if not game.set_fluid(at, { fluid = blocks.RAINWATER, volume = 1 }) then
+        return
+    end
+    local top = game.surface_at{ x = at.x, z = at.z, from = at.y, depth = 1 }
+    game.set_fluid(at, { volume = 0 })
+    if top ~= nil and top.fluid ~= nil and top.y == at.y then
+        rain_fluid = top.fluid
+    end
 end
 
 -- ------------------------------------------------------------ snow
@@ -130,6 +163,24 @@ local function column(x, z, feet_y, square, tick, rng)
     end
     if top.fluid ~= nil then
         M.stats.wet = M.stats.wet + 1
+        -- Our own rainwater, and the rain has been gone a while: dried. A
+        -- settled puddle is never visited by the fluid solver again, so its
+        -- `evaporates` never comes up (ask W24); this is what does instead.
+        if top.fluid == rain_fluid and not (square.intensity > 0 and family_of(square.kind) == "rain")
+            and tick - square.last_rain >= config.PUDDLE_DRY_AFTER_TICKS then
+            queue.push_fluid({ x = x, y = top.y, z = z }, blocks.RAINWATER, 0)
+            M.stats.puddles_dried = M.stats.puddles_dried + 1
+            -- A puddle spreads into a film a block or two wide, so its
+            -- neighbours at the same height are very likely more of it.
+            for _, d in ipairs(BESIDE) do
+                local nx, nz = x + d[1], z + d[2]
+                local next_to = game.surface_at{ x = nx, z = nz, from = top.y, depth = 1 }
+                if next_to ~= nil and next_to.fluid == rain_fluid and next_to.y == top.y then
+                    queue.push_fluid({ x = nx, y = top.y, z = nz }, blocks.RAINWATER, 0)
+                    M.stats.puddles_dried = M.stats.puddles_dried + 1
+                end
+            end
+        end
         return
     end
     if top.material == blocks.fire_id then
@@ -214,7 +265,9 @@ local function wanted(square, tick)
     if square.intensity > 0 and (family == "snow" or (family == "rain" and (config.damp_ground or config.puddles))) then
         return true
     end
-    if tick - square.last_snow < config.THAW_MEMORY_TICKS then
+    -- Puddles are looked for in any weather: one laid in an earlier session,
+    -- or before the engine could dry it, is still lying there (ask W24).
+    if config.puddles or tick - square.last_snow < config.THAW_MEMORY_TICKS then
         return true
     end
     return config.damp_ground and tick - square.last_rain < config.THAW_MEMORY_TICKS
@@ -237,6 +290,9 @@ local function sample()
         local square = where and controller.squares[where.key]
         if wanted(square, tick) then
             M.stats.turns = M.stats.turns + 1
+            if rain_fluid == nil and config.puddles then
+                learn_rain_fluid(where)
+            end
             local px, pz = math.floor(where.x), math.floor(where.z)
             local rng = game.rng_stream({ x = px // CHUNK, y = tick % Y_WRAP, z = pz // CHUNK,
                 seed = game.world_seed }, "wx_ground")

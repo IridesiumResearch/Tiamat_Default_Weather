@@ -224,7 +224,7 @@ function M.ordinary(x, y, z, tick, ground)
         end
         return f >= config.CLOUDY_AT and "cloudy" or "clear", 0
     end
-    local wet = f + climate.moisture(x, y, z)
+    local wet = f + config.MOISTURE_WEIGHT * climate.moisture(x, y, z)
     if wet < config.CLOUDY_AT then
         return "clear", 0
     elseif wet < config.RAIN_AT then

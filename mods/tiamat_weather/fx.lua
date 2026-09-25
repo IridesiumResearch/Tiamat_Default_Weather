@@ -55,14 +55,20 @@ local Y_WRAP = 1 << 30          -- rng_stream takes y as a 32-bit integer
 -- overlapped by two to four, so the same numbers now mean what they say. `area` is half extents, `above` is how far
 -- over the camera the box sits, `wind` is blocks a second along the climate's
 -- wind direction.
+-- `picture` names a shape from PICTURES, drawn on each particle in place of
+-- the engine's soft disc (the `texture` field `emit_particles` takes, which
+-- `set_precipitation` reads through the same burst parser). Rain is a 1x2
+-- streak and snow a square, crisp at any size: "little 1x2 blue-ish
+-- rectangles, not fuzzy blobs; same with snow" (2026-09-25). A drop's
+-- picture is half as wide as the particle, so its size is its HEIGHT.
 M.PRECIP = {
-    rain = { live = 1100, size = 0.06, life = 1.0, vy = -22, gravity = 0, wind = 2,
-        area = { 16, 3, 16 }, above = 18, colour = { 0.7, 0.75, 0.85, 0.55 } },
-    storm = { live = 1365, size = 0.12, life = 0.8, vy = -30, gravity = 0, wind = 5,
-        area = { 16, 3, 16 }, above = 18, colour = { 0.55, 0.6, 0.68, 0.65 } },
-    snow = { live = 1400, size = 0.15, life = 5.0, vy = -2.5, gravity = 0.3, wind = 1.5, spread = 0.6,
+    rain = { live = 900, size = 0.14, life = 1.0, vy = -22, gravity = 0, wind = 2, picture = "drop",
+        area = { 16, 3, 16 }, above = 18, colour = { 0.55, 0.68, 0.95, 0.6 } },
+    storm = { live = 1200, size = 0.18, life = 0.8, vy = -30, gravity = 0, wind = 5, picture = "drop",
+        area = { 16, 3, 16 }, above = 18, colour = { 0.48, 0.58, 0.85, 0.7 } },
+    snow = { live = 1400, size = 0.14, life = 5.0, vy = -2.5, gravity = 0.3, wind = 1.5, spread = 0.6, picture = "flake",
         area = { 16, 4, 16 }, above = 14, colour = { 1, 1, 1, 0.9 } },
-    blizzard = { live = 1400, size = 0.24, life = 3.0, vy = -3, gravity = 0, wind = 10,
+    blizzard = { live = 1400, size = 0.2, life = 3.0, vy = -3, gravity = 0, wind = 10, picture = "flake",
         area = { 16, 6, 16 }, above = 8, colour = { 1, 1, 1, 0.85 } },
     -- Ash falls on the Ember Ridge, whose fumaroles share the client's budget.
     ash = { live = 700, size = 0.18, life = 7.0, vy = -1.5, gravity = 0.2, wind = 1,
@@ -105,6 +111,22 @@ end
 
 -- ------------------------------------------------------------ registration
 
+-- The particle pictures. `register_picture` puts each in the table a client
+-- fetches on join and answers its content hash; a client still fetching
+-- draws the plain disc meanwhile. An engine without it keeps the discs.
+local PICTURES = { drop = "textures/rain_drop.png", flake = "textures/snow_flake.png" }
+M.pictures = {}
+if type(game.register_picture) == "function" then
+    for name, file in pairs(PICTURES) do
+        local ok, hash = pcall(game.register_picture, { file = file })
+        if ok then
+            M.pictures[name] = hash
+        else
+            game.log("tiamat_weather: the " .. name .. " picture did not register: " .. tostring(hash))
+        end
+    end
+end
+
 game.register_sound{ id = "rain", file = "sounds/rain.wav", gain = 0.8 }
 game.register_sound{ id = "wind", file = "sounds/wind.wav", gain = 0.7 }
 game.register_sound{ id = "thunder", file = "sounds/thunder.wav", gain = 1.0, pitch_variance = 0.15 }
@@ -126,7 +148,7 @@ local SETTING = "tiamat_weather:particles"
 local SHARE = { off = 0, low = 1, full = 2 }
 
 M.stats = {
-    precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0,
+    precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0, shaft = 0,
     -- Lightning that found ground, and what it did there.
     strikes_grounded = 0, ignitions = 0, scorches = 0, set_alight = 0,
     -- Fire, presented.
@@ -184,6 +206,7 @@ local function precipitation_for(uuid, square, share, wind, was)
         collide = row.collide ~= false,
         area = { x = row.area[1], y = row.area[2], z = row.area[3] },
         above = row.above,
+        texture = row.picture and M.pictures[row.picture] or nil,
         ease_ticks = config.EASE_TICKS,
     })
     M.stats.precipitation = M.stats.precipitation + 1
@@ -306,6 +329,41 @@ local function tell_listeners(x, y, z)
     end
 end
 
+-- The flash itself. Two ticks up and FLASH_DECAY down, where it was one and
+-- six: long enough to see the land lit, short enough to be lightning.
+local FLASH_DECAY = 16
+local FLICKERS = 2
+local FLICKER_GAP_LOW = 3
+local FLICKER_GAP_SPREAD = 4
+local flickers = {}
+
+local function flash_at(at, intensity)
+    game.flash{
+        pos = at,
+        radius = config.STRIKE_SEEN,
+        intensity = intensity,
+        colour = { 0.9, 0.92, 1.0 },
+        attack_ticks = 2,
+        decay_ticks = FLASH_DECAY,
+    }
+    M.stats.flashes = M.stats.flashes + 1
+end
+
+local function flicker(tick)
+    if #flickers == 0 then
+        return
+    end
+    local keep = {}
+    for _, f in ipairs(flickers) do
+        if tick >= f.when then
+            flash_at(f.at, f.intensity)
+        else
+            keep[#keep + 1] = f
+        end
+    end
+    flickers = keep
+end
+
 -- One bolt at column (x, z), from the square's storm. `top` is the ground
 -- there as `surface_at` answered it: nil to look it up here, false when the
 -- caller already looked and found nothing, in which case the flash goes
@@ -325,15 +383,15 @@ local function bolt(square, tick, x, z, rng, top)
     else
         at = { x = x, y = math.floor(rep.y) + config.STRIKE_ABOVE, z = z }
     end
-    game.flash{
-        pos = at,
-        radius = config.STRIKE_SEEN,
-        intensity = 1.0,
-        colour = { 0.9, 0.92, 1.0 },
-        attack_ticks = 1,
-        decay_ticks = 6,
-    }
-    M.stats.flashes = M.stats.flashes + 1
+    flash_at(at, 1.0)
+    -- A bolt is several return strokes down one channel, so it flickers:
+    -- up to FLICKERS more flashes a few ticks apart, each dimmer. One flash
+    -- of six ticks read as a camera flash ("too fast", 2026-09-25).
+    local after = tick
+    for n = 1, rng:below(FLICKERS + 1) do
+        after = after + FLICKER_GAP_LOW + rng:below(FLICKER_GAP_SPREAD + 1)
+        flickers[#flickers + 1] = { at = at, when = after, intensity = 1.0 - 0.2 * n }
+    end
     -- Thunder, once the sound has had time to travel from there to here.
     local far = math.max(math.abs(x - math.floor(rep.x)), math.abs(z - math.floor(rep.z)))
     pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
@@ -862,8 +920,52 @@ end
 -- the topmost thing over the player being leaves is what tells a forest from
 -- an overhang. No sun at all is underground whatever is overhead, so a cave
 -- under a wood is still a refuge.
+--
+-- **The bottom of a shaft is not open sky** (2026-09-25). Daylight falls
+-- straight down a dug shaft at full strength, so a player forty blocks down
+-- one read as out in the storm and got its fog, grey and close, down the
+-- whole tunnel. So a sunlit head is also asked how far it stands under the
+-- ground AROUND it: the lowest of SHAFT_PROBES columns SHAFT_REACH blocks
+-- away, all of which must stand over the head for it to count. A valley or
+-- a cliff foot has at least one low side and is untouched; a shaft or a
+-- pit fades to nothing between SHAFT_FROM and SHAFT_GONE blocks down.
+-- A probe that lands on leaves is a forest, and a forest is open sky here
+-- (the canopy rule below), so it answers "not a shaft" at once.
+local SHAFT_REACH = 8
+local SHAFT_FROM = 4
+local SHAFT_GONE = 16
+local SHAFT_PROBES = { { SHAFT_REACH, 0 }, { -SHAFT_REACH, 0 }, { 0, SHAFT_REACH }, { 0, -SHAFT_REACH } }
+
+local function under_ground(head)
+    local low = nil
+    for _, d in ipairs(SHAFT_PROBES) do
+        local top = game.surface_at{ x = head.x + d[1], z = head.z + d[2], from = head.y + config.CANOPY_SCAN,
+            depth = config.CANOPY_SCAN, skip_passable = true, skip_fluid = true }
+        if top == nil then
+            return 0
+        end
+        if climate.canopy[top.material] then
+            return 0
+        end
+        local depth = top.y - head.y
+        if depth <= SHAFT_FROM then
+            return 0
+        end
+        low = (low == nil or depth < low) and depth or low
+    end
+    return low or 0
+end
+
 local function exposure_at(head)
     local sun = math.max(0, math.min(15, game.get_light(head).sun))
+    if sun == 15 then
+        local depth = under_ground(head)
+        if depth > SHAFT_FROM then
+            M.stats.shaft = M.stats.shaft + 1
+            local left = math.max(0, SHAFT_GONE - depth)
+            return 15 * left // (SHAFT_GONE - SHAFT_FROM)
+        end
+    end
     if sun == 0 or sun == 15 or next(climate.canopy) == nil then
         return sun
     end
@@ -920,6 +1022,7 @@ end)
 
 wx.on_tick(function(dt_ticks)
     thunder(wx.now)
+    flicker(wx.now)
     fires_seen(dt_ticks)
 end)
 

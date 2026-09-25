@@ -157,6 +157,53 @@ local function forecast(player)
     return table.concat(lines, "; ")
 end
 
+-- How often it rains where you stand: the weather function (mega storms
+-- left out) read SURVEY_TIMES times across a year at SURVEY_PLACES places
+-- within SURVEY_REACH blocks, as shares. For tuning RAIN_AT and STORM_AT
+-- against a number rather than an afternoon's impression. The ground is
+-- read once, at the player, so a survey from dry sand counts dust.
+local SURVEY_TIMES = 400
+local SURVEY_PLACES = 5
+local SURVEY_REACH = 1500
+
+local function survey(player)
+    local pos = here(player)
+    if pos == nil or game.world_seed == nil then
+        return "you are not anywhere the weather can find"
+    end
+    local ground = climate.override(pos.x, pos.y, pos.z)
+    local counts = { clear = 0, cloudy = 0, light = 0, heavy = 0, storm = 0 }
+    local year = controller.YEAR_TICKS
+    local offsets = { { 0, 0 }, { SURVEY_REACH, 0 }, { -SURVEY_REACH, 0 }, { 0, SURVEY_REACH }, { 0, -SURVEY_REACH } }
+    local n = 0
+    for p = 1, SURVEY_PLACES do
+        local x, z = pos.x + offsets[p][1], pos.z + offsets[p][2]
+        for t = 0, SURVEY_TIMES - 1 do
+            local tick = wx.now + t * year // SURVEY_TIMES
+            local kind, intensity = controller.ordinary(x, pos.y, z, tick, ground)
+            local k = controller.KINDS[kind]
+            local bucket
+            if not k.precip then
+                bucket = kind
+            elseif kind == "storm" or kind == "blizzard" or kind == "ash_storm" then
+                bucket = "storm"
+            elseif intensity < 600 then
+                bucket = "light"
+            else
+                bucket = "heavy"
+            end
+            counts[bucket] = counts[bucket] + 1
+            n = n + 1
+        end
+    end
+    local function pct(c)
+        return math.floor(100 * c / n + 0.5)
+    end
+    return string.format("over a year here: clear %d%%, cloudy %d%%, light %d%%, heavy %d%%, storm %d%% (falling %d%%)",
+        pct(counts.clear), pct(counts.cloudy), pct(counts.light), pct(counts.heavy), pct(counts.storm),
+        pct(counts.light + counts.heavy + counts.storm))
+end
+
 -- When the next mega storms pass over you, in in-game days, and how strong
 -- they get where you stand; `/weather mega <years>` counts them too.
 local function mega(player, args)
@@ -394,6 +441,8 @@ wx.on_command("weather", function(player, args)
         return clear(player)
     elseif sub == "forecast" then
         return forecast(player)
+    elseif sub == "survey" then
+        return survey(player)
     elseif sub == "mega" then
         return mega(player, args)
     elseif sub == "drift" then
@@ -409,7 +458,7 @@ wx.on_command("weather", function(player, args)
     elseif sub == "strike" then
         return strike(player)
     end
-    return "usage: /weather [set <kind> [minutes] | clear | forecast | mega | drift | clouds | stats | fires | fire [at x y z | out] | strike]"
+    return "usage: /weather [set <kind> [minutes] | clear | forecast | survey | mega | drift | clouds | stats | fires | fire [at x y z | out] | strike]"
 end)
 
 -- The drift check once per session, when the first player has joined and

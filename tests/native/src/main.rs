@@ -674,6 +674,7 @@ const TWO_LAYERS: u32 = 0xFC7E3F;
 
 fn main() {
     climate_check();
+    survey_check();
     let storage = Arc::new(Storage::default());
     let saved_front = weather_check(storage.clone());
     restart_check(storage, &saved_front);
@@ -731,6 +732,33 @@ fn climate_check() {
     assert!((quarter - three_quarters).abs() <= 25.0, "symmetric about t=.5: {quarter} vs {three_quarters}");
 }
 
+// How often it rains (2026-09-25: "it rains far too often"). The survey is
+// the weather function over a year at five places round the player; the
+// Verdant belt is this mod's wettest ground, the glass waste its driest.
+fn survey_check() {
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    r.stand(ALICE, 100.0, 0.0, "tiamat_default_world:dirt");
+    r.join(ALICE, 100.0, dome_y(100.0, 0.0) + 1.0, 0.0);
+    r.tick(1);
+    let (mut falling, mut storm, mut wettest, mut n) = (0.0, 0.0, 0.0f64, 0.0);
+    for i in 0..12 {
+        let t = 0.2 + 0.05 * f64::from(i);
+        let z = 7000.0 * f64::from(i % 3) - 7000.0;
+        r.stand(ALICE, t * 59000.0, z, "tiamat_default_world:dirt");
+        let reply = r.reply(ALICE, "/weather survey");
+        let f = number_after(&reply, "falling ");
+        falling += f;
+        storm += number_after(&reply, "storm ");
+        wettest = wettest.max(f);
+        n += 1.0;
+    }
+    let (falling, storm) = (falling / n, storm / n);
+    println!("ok  survey: something falls {falling:.0}% of the year, a storm {storm:.0}%, {wettest:.0}% at the wettest place");
+    assert!((10.0..=25.0).contains(&falling), "it rains {falling:.0}% of the year");
+    assert!(storm <= 10.0, "it storms {storm:.0}% of the year");
+    assert!(wettest <= 40.0, "somewhere is wet {wettest:.0}% of the year");
+}
+
 // A forced storm over a warm square: HUD, bursts under the budget, one loop
 // that is not restarted every evaluation, thunder, and the chat ladder.
 fn weather_check(storage: Arc<Storage>) -> String {
@@ -767,14 +795,16 @@ fn weather_check(storage: Arc<Storage>) -> String {
     let feet = dome_y(x, 100.0) + 1.0;
     let alice = Some(PlayerUuid::from_bytes(ALICE));
     let rain = r.rain_of(ALICE).expect("a storm sets the rain");
-    assert_eq!(rain.burst.size, 0.12, "the storm's drops");
+    assert_eq!(rain.burst.size, 0.18, "the storm's drops");
+    assert!(rain.burst.texture.is_some(), "a drop is the 1x2 streak picture, not the soft disc");
     let live = f64::from(rain.rate) * f64::from(rain.burst.lifetime);
     assert!(live <= 2801.0, "{live} live storm particles for one player");
     // Three times as hard to see through as the first storm table
-    // (1,365 live x 0.07^2 x 0.6 = 4.01), by live x size^2 x alpha.
+    // (1,365 live x 0.07^2 x 0.6 = 4.01), by live x area x alpha, where a
+    // drop's picture covers half its square.
     let size = f64::from(rain.burst.size);
     let alpha = f64::from(rain.burst.colour[3]) / 255.0;
-    let opacity = live * size * size * alpha;
+    let opacity = live * size * size * 0.5 * alpha;
     assert!(opacity >= 3.0 * 4.01, "storm opacity {opacity:.2}, wanted at least {:.2}", 3.0 * 4.01);
     assert!(rain.burst.velocity[1] < -20.0, "it falls hard");
 
@@ -894,6 +924,33 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(r.rain_of(ALICE).is_some(), "and its rain");
     assert!(r.sounds.loops.lock().unwrap().len() > loops, "and its loop");
     println!("ok  underground: no rain, fog or loop; back out, all three return");
+
+    // The bottom of a shaft: daylight falls straight down it at full
+    // strength, but the ground stands thirty blocks over the head on every
+    // side, so it is underground, not out in the storm (2026-09-25: "light
+    // fog at the bottom of long deep tunnels"). One low side is a valley.
+    let stone = r.material("tiamat_default_world:stone");
+    let feet = r.world.floor.lock().unwrap().0 + 1;
+    let (ax, az) = (x as i32, 100);
+    let sides = [(8, 0), (-8, 0), (0, 8), (0, -8)];
+    let build = |r: &Rig, sides: &[(i32, i32)], material: MaterialId, occupancy: u32| {
+        for (dx, dz) in sides {
+            for y in feet..=feet + 32 {
+                r.world.put(ax + dx, y, az + dz, material, occupancy);
+            }
+        }
+    };
+    build(&r, &sides[..3], stone, FULL);
+    r.tick(41);
+    assert!(r.sky_of(ALICE).is_some_and(|s| s.fog_distance < 0.4), "three walls and an open side is a valley: {:?}", r.sky_of(ALICE));
+    build(&r, &sides[3..], stone, FULL);
+    r.tick(41);
+    assert!(r.rain_of(ALICE).is_none(), "no rain down a deep shaft");
+    assert!(r.sky_of(ALICE).is_none(), "nor the storm's fog: {:?}", r.sky_of(ALICE));
+    build(&r, &sides, MaterialId(0), 0);
+    r.tick(41);
+    assert!(r.sky_of(ALICE).is_some_and(|s| s.fog_distance < 0.4), "the walls gone, the storm is back");
+    println!("ok  a deep shaft is underground though the sun reaches its floor; a valley is not");
 
     // Under a forest it is still storming: leaves dim the sun to 6, which
     // alone reads like a cave mouth, but a canopy overhead is outdoors.
@@ -1159,11 +1216,17 @@ fn puddle_check() {
     r.tick(1);
     r.say(ALICE, "/weather set rain 30");
     r.tick(20 * 60 * 2);
-    let writes = r.world.fluid_writes.lock().unwrap().clone();
+    // The one-cell write and clear over Alice's head is rainwater's id being
+    // read off the world, once; everything else is a puddle.
+    let all = r.world.fluid_writes.lock().unwrap().clone();
+    let probes: Vec<_> = all.iter().filter(|w| w.1.y == top + 1 + 32).collect();
+    assert_eq!(probes.len(), 2, "one probe, written and cleared: {probes:?}");
+    assert!(!r.world.fluids.lock().unwrap().contains_key(&(probes[0].1.x, probes[0].1.y, probes[0].1.z)), "the probe left nothing");
+    let writes: Vec<_> = all.iter().filter(|w| w.1.y != top + 1 + 32).cloned().collect();
     assert!(!writes.is_empty(), "two minutes of rain left puddles");
     for (_, pos, id, volume) in &writes {
         assert_eq!(*id, RAIN_ID, "only rainwater is written");
-        assert!(*volume == 3 || *volume == 6, "a rain puddle is 3 cells, a storm's 6: {volume}");
+        assert!(*volume == 3 || *volume == 4, "a rain puddle is 3 cells, a storm's 4: {volume}");
         assert_eq!(pos.y, top + 1, "on the ground, in the open cell above it");
         assert!(!(pos.z == z as i32 + 5 && (pos.x - x as i32).abs() <= 40), "no puddle on a non-ground block");
     }
@@ -1175,6 +1238,19 @@ fn puddle_check() {
         assert!(!per_tick.contains_key(&(tick + 1)), "puddles landed on consecutive ticks");
     }
     println!("ok  puddles: {} rainwater writes in two minutes of rain, none on logs, paced", writes.len());
+
+    // The rain stops, and the puddles near Alice dry: a settled puddle is
+    // never evaporated by the engine (ask W24), so the sampler clears it.
+    let lying = r.world.fluids.lock().unwrap().values().filter(|(id, _)| *id == RAIN_ID).count();
+    let river = (x as i32 + 3, top + 1, z as i32 - 3);
+    r.world.fluids.lock().unwrap().insert(river, (WATER_ID, 5));
+    r.say(ALICE, "/weather set clear 30");
+    r.tick(20 * 60 * 4);
+    let left = r.world.fluids.lock().unwrap().values().filter(|(id, _)| *id == RAIN_ID).count();
+    assert!(lying > 0 && left * 2 <= lying, "{lying} puddles lying when the rain stopped, {left} four minutes later");
+    assert!(r.world.fluids.lock().unwrap().contains_key(&river), "water that is not rainwater is left alone");
+    r.world.fluids.lock().unwrap().remove(&river);
+    println!("ok  puddles dry after the rain: {lying} lying, {left} four minutes later; other water untouched");
 
     // Rainwater pressing into a river: its block is cleared.
     let from = BlockPos::new(10, top + 1, 10);

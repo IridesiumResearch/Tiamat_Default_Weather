@@ -107,8 +107,27 @@ def flame():
     return rows
 
 
+def drop():
+    """A raindrop: a white bar half as wide as it is tall, in the middle of
+    the square. A particle is drawn square, `size` across, and a picture's
+    alpha is its shape, so this is the 1x2 streak (2026-09-25: "little 1x2
+    blue-ish rectangles, not fuzzy blobs"); the colour is fx.lua's tint."""
+    lo, hi = SIZE // 4, SIZE - SIZE // 4
+    row = []
+    for x in range(SIZE):
+        row += [255, 255, 255, 255 if lo <= x < hi else 0]
+    return [list(row) for _ in range(SIZE)]
+
+
+def flake():
+    """A snowflake: a crisp white square, the same pixel look as the rain."""
+    return [[255, 255, 255, 255] * SIZE for _ in range(SIZE)]
+
+
 SHAPES = {
     "fire": flame,
+    "rain_drop": drop,
+    "snow_flake": flake,
 }
 
 

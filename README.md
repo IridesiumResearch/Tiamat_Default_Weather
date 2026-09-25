@@ -86,6 +86,7 @@ Before committing, check the licence headers and the sign-offs (see
 | `/weather set <kind> [minutes]` | Force a kind on your 256-block square: `clear`, `cloudy`, `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm`, `dust`, or `mega` for a mega storm |
 | `/weather clear` | Remove the force |
 | `/weather forecast` | The next ten minutes at your square |
+| `/weather survey` | How often rain, snow and storms come where you stand, as shares of a year |
 | `/weather mega [years]` | When the next mega storm passes over you, and how many in the next few years |
 | `/weather drift` | Check the mirrored humidity against the Spindle's ground |
 | `/weather fires` | How many blazes and blocks are alight, and what lit them |
