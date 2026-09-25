@@ -93,9 +93,12 @@ return {
     STRIKE_SEEN = 512,          -- blocks the flash is seen from
     STRIKE_HEARD = 400,         -- blocks the thunder is heard from
     -- The cloud deck (register_clouds), shaped after docs/reference/.
-    CLOUD_ABOVE = 400,          -- blocks over the ground the cloud floor sits
+    CLOUD_ABOVE = 500,          -- blocks over the ground the cloud floor sits (400 until 2026-09-25: "a bit too low", up a quarter)
     CLOUD_BASE_STEP = 64,       -- the floor moves in steps of this, so walking does not nudge the sky
-    CLOUD_THICKNESS = 200,      -- blocks from the floor to the tallest tower's top (160 until 2026-09-23: "a little bit bigger")
+    -- 180 since 2026-09-25 ("a bit too laggy, cut some corners"): the steps
+    -- a ray takes through the deck scale with it, and 140 measured a tenth
+    -- off (plan 10.19). 160 until 2026-09-23, 200 until today.
+    CLOUD_THICKNESS = 180,      -- blocks from the floor to the tallest tower's top
     -- Coarse on purpose (2026-09-18): 8-block cubes cost a frame at the
     -- horizon for detail nobody could see. 16 halves the steps a ray takes.
     -- Since engine 0d8e857 the deck is heaps: FREQUENCY spaces them (a heap
@@ -104,7 +107,9 @@ return {
     -- the heaps have grown 1.7 times since 16 was chosen, so 24 keeps the
     -- cubes-per-cloud 16 gave, and it is a seventh off the deck's cost on
     -- every view measured; 32 would be a quarter off and reads as blocks.
-    CLOUD_CELL = 24,            -- blocks per cube
+    -- 32 since 2026-09-25, the lag again: a quarter off 16's cost where 24
+    -- was a seventh (plan 10.19), so about an eighth off 24's, and blockier.
+    CLOUD_CELL = 32,            -- blocks per cube
     CLOUD_DETAIL = 2,           -- small cubes per cube edge on the surface
     -- Heaps sit on a lattice 0.42 / FREQUENCY blocks apart, each with a
     -- RADIUS of 0.30 to 0.68 of that spacing (the engine's curve, by the
@@ -127,8 +132,8 @@ return {
     -- mountains up to 0.9 km over the dome (climate_spindle.lua, MIRRORS), and
     -- a floor CLOUD_ABOVE over the dome sat mid-mountain there. Lifted by
     -- biome, so a player still climbs above the deck on the highest peaks.
-    CLOUD_LIFT_ALPINE = 320,    -- blocks, over CLOUD_ABOVE, in the alpine highlands
-    CLOUD_LIFT_FROST = 160,     -- and in the frost ring beside them, whose terrain fades into the alpine's
+    CLOUD_LIFT_ALPINE = 400,    -- blocks, over CLOUD_ABOVE, in the alpine highlands (320 until 2026-09-25, up a quarter with the floor)
+    CLOUD_LIFT_FROST = 200,     -- and in the frost ring beside them, whose terrain fades into the alpine's (160 until 2026-09-25)
     CANOPY_SCAN = 48,           -- blocks over a player's head a canopy is looked for
     -- One in this many storm evaluations (EVAL_TICKS apart) strikes: about
     -- one bolt every eight seconds in a storm. 12 until 2026-09-25, one every

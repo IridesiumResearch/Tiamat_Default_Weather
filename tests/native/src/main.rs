@@ -848,7 +848,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // The cloud deck: registered once, shaped after the references, and
     // steered per player. Nothing is emitted as particles any more.
     let deck = r.vm.registered_clouds().expect("weather registers a cloud deck");
-    assert_eq!((deck.cell, deck.detail), (24.0, 2), "cubes of 24 breaking into 12s on the surface");
+    assert_eq!((deck.cell, deck.detail), (32.0, 2), "cubes of 32 breaking into 16s on the surface");
     assert!(deck.thickness >= 128.0 && deck.towers > 0.0, "heaps with towers: {deck:?}");
     assert!((deck.drift[0] - 0.5).abs() < 1e-6 && deck.drift[1] == 0.0, "drifts with the fronts: {:?}", deck.drift);
     assert!(deck.shade[2] > deck.shade[0], "a blue-violet shade: {:?}", deck.shade);
@@ -866,8 +866,8 @@ fn weather_check(storage: Arc<Storage>) -> String {
         "a sheet under towers: {storm_clouds:?}");
     assert_eq!(storm_clouds.altocumulus, 0.0, "no mackerel sky in a storm: {storm_clouds:?}");
     let floor = storm_clouds.base.expect("the floor is sent per player");
-    let want = ((dome_y(x, 100.0) + 400.0) / 64.0).floor() * 64.0;
-    assert_eq!(f64::from(floor), want, "400 over the dome under the player, in steps of 64");
+    let want = ((dome_y(x, 100.0) + 500.0) / 64.0).floor() * 64.0;
+    assert_eq!(f64::from(floor), want, "500 over the dome under the player, in steps of 64");
     assert!(storm_clouds.ease_ticks > 0, "a change of weather is eased");
     let said = r.reply(ALICE, "/weather clouds");
     assert!(said.starts_with("cover 0.40, darkness 0.90"), "{said}");
@@ -1024,7 +1024,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     r.stand(ALICE, rim, 0.0, "tiamat_default_world:dirt");
     r.tick(41);
     let low = r.clouds_of(ALICE).unwrap().base.unwrap();
-    let want = ((dome_y(rim, 0.0) + 400.0) / 64.0).floor() * 64.0;
+    let want = ((dome_y(rim, 0.0) + 500.0) / 64.0).floor() * 64.0;
     assert_eq!(f64::from(low), want, "the floor over the rim");
     assert!(floor - low > 1000.0, "the dome falls about 1.3 km from t=.5 to t=.9: {floor} to {low}");
     r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
@@ -2252,7 +2252,7 @@ fn life_check() {
 // the dome than elsewhere, by the Spindle's own biome; in the woodlands it
 // does not move.
 fn cloud_lift_check() {
-    for (biome, lift) in [("alpine_highlands", 320.0), ("taiga", 160.0), ("temperate_woodlands", 0.0)] {
+    for (biome, lift) in [("alpine_highlands", 400.0), ("taiga", 200.0), ("temperate_woodlands", 0.0)] {
         let spindle = format!(
             "{SPINDLE_STANDIN}\ngame.export{{ version = 1, biome_under = function(x, y, z) return '{biome}' end }}"
         );
@@ -2262,7 +2262,7 @@ fn cloud_lift_check() {
         r.join(ALICE, x, f64::from(top + 1), z);
         r.tick(41);
         let base = r.clouds_of(ALICE).expect("clouds").base.expect("a floor");
-        let want = ((dome_y(x, z) + 400.0 + lift) / 64.0).floor() * 64.0;
+        let want = ((dome_y(x, z) + 500.0 + lift) / 64.0).floor() * 64.0;
         assert_eq!(f64::from(base), want, "the floor over {biome}");
         println!("ok  the cloud floor over {biome}: y {base}, {lift} over the plain floor");
     }
