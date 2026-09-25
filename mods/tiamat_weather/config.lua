@@ -202,4 +202,6 @@ return {
     STRIKE_SCORCH_ODDS = 2,      -- one strike in this many on bare turf leaves a scorch mark
     STRIKE_ALIGHT_RADIUS = 3,    -- blocks from a landed bolt within which a body is set alight (through Life)
     STRIKE_ALIGHT_TICKS = 100,   -- and for how long: five seconds, Life's own after-lava figure
+    PLAYER_STRIKE_ODDS = 500,    -- one strike in this many is aimed at a player under open sky
+    STRIKE_HIT_TICKS = 200,      -- and burns whoever it hits for ten seconds
 }

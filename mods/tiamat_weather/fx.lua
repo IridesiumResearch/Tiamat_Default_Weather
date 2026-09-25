@@ -150,7 +150,7 @@ local SHARE = { off = 0, low = 1, full = 2 }
 M.stats = {
     precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0, shaft = 0,
     -- Lightning that found ground, and what it did there.
-    strikes_grounded = 0, ignitions = 0, scorches = 0, set_alight = 0,
+    strikes_grounded = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
     -- Fire, presented.
     fire_loops = 0, smoke = 0,
 }
@@ -370,7 +370,11 @@ end
 -- where it always went — STRIKE_ABOVE over the player — and touches nothing.
 -- `rng` carries on the caller's stream, so the odds below stay on the one
 -- deterministic draw per strike.
-local function bolt(square, tick, x, z, rng, top)
+-- Defined with the tick, below; a strike asks it whether a player is out in
+-- the open.
+local exposure_at
+
+local function bolt(square, tick, x, z, rng, top, hit_ticks)
     local rep = square.rep
     local up = mega_of(square)
     if top == nil then
@@ -435,7 +439,7 @@ local function bolt(square, tick, x, z, rng, top)
     if top then
         for _, id in ipairs(game.entities_in_radius(at, config.STRIKE_ALIGHT_RADIUS)) do
             local body = game.entity(id)
-            if body ~= nil and wx.fire.set_alight(body.owner or id, config.STRIKE_ALIGHT_TICKS) then
+            if body ~= nil and wx.fire.set_alight(body.owner or id, hit_ticks or config.STRIKE_ALIGHT_TICKS) then
                 M.stats.set_alight = M.stats.set_alight + 1
             end
         end
@@ -454,6 +458,31 @@ local function strike(square, tick)
     local odds = math.floor(config.THUNDER_ODDS + (config.MEGA_THUNDER_ODDS - config.THUNDER_ODDS) * up + 0.5)
     if rng:below(math.max(1, odds)) ~= 0 then
         return
+    end
+    -- **Now and then it is you** (2026-09-25: "able to hit a player
+    -- extremely rarely"). One strike in PLAYER_STRIKE_ODDS is aimed at a
+    -- player in the square who stands under open sky, not at the highest of
+    -- the candidates, and burns them for STRIKE_HIT_TICKS rather than the
+    -- bystander's STRIKE_ALIGHT_TICKS. A cave, a roof or the bottom of a
+    -- shaft is a refuge, as it is from the rain. At a bolt every eight
+    -- seconds that is about once an hour spent out in storms.
+    if rng:below(math.max(1, config.PLAYER_STRIKE_ODDS)) == 0 then
+        local open = {}
+        for _, uuid in ipairs(square.members or {}) do
+            local where = controller.where[uuid]
+            if where then
+                local head = { x = math.floor(where.x), y = math.floor(where.y + 1.6), z = math.floor(where.z) }
+                if exposure_at(head) == 15 then
+                    open[#open + 1] = where
+                end
+            end
+        end
+        if #open > 0 then
+            local target = open[rng:below(#open) + 1]
+            M.stats.player_strikes = M.stats.player_strikes + 1
+            bolt(square, tick, math.floor(target.x), math.floor(target.z), rng, nil, config.STRIKE_HIT_TICKS)
+            return
+        end
     end
     local rep = square.rep
     local rx, rz = math.floor(rep.x), math.floor(rep.z)
@@ -956,7 +985,7 @@ local function under_ground(head)
     return low or 0
 end
 
-local function exposure_at(head)
+function exposure_at(head)
     local sun = math.max(0, math.min(15, game.get_light(head).sun))
     if sun == 15 then
         local depth = under_ground(head)

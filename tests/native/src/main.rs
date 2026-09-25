@@ -697,6 +697,7 @@ fn main() {
     lightning_check();
     fire_lava_check();
     life_check();
+    player_strike_check();
     cloud_lift_check();
     plain_check();
     hud_check();
@@ -2199,6 +2200,34 @@ fn fire_lava_check() {
 // Beside Life (a1d016c): weather calls both unlocks at load for its fire
 // block, with the contract's arguments, and a bolt beside Alice sets her
 // alight through the third, by her UUID.
+// Now and then the bolt is aimed at a player (2026-09-25). With the odds
+// forced to one, a storm's bolt lands on Alice in the open and burns her for
+// STRIKE_HIT_TICKS through Life; under a roof she is passed over.
+fn player_strike_check() {
+    let prelude = "wx_overrides = { PLAYER_STRIKE_ODDS = 1 }";
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::beside_life(Some(&spindle), Arc::new(Storage::default()), prelude);
+    clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+    r.say(ALICE, "/weather set storm 30");
+    r.tick(40 * 25);
+    let flashes = r.atmosphere.flashes.lock().unwrap().clone();
+    assert!(!flashes.is_empty(), "the storm struck");
+    let (ax, az) = (FIRE_X.floor(), FIRE_Z.floor());
+    assert!(flashes.iter().all(|(_, f)| (f64::from(f.pos[0]) - ax).abs() < 1.0 && (f64::from(f.pos[2]) - az).abs() < 1.0),
+        "every bolt on Alice: {:?}", flashes.iter().map(|f| (f.1.pos[0], f.1.pos[2])).collect::<Vec<_>>());
+    let hex: String = ALICE.iter().map(|b| format!("{b:02x}")).collect();
+    let told = r.reply(ALICE, "/life");
+    assert!(told.contains(&format!("{hex}:200")), "Alice burns for ten seconds: {told}");
+    // Under a roof the aimed bolt finds nobody and goes where bolts go.
+    r.world.roofs.lock().unwrap().push((ax as i32, az as i32));
+    let before = r.atmosphere.flashes.lock().unwrap().len();
+    r.tick(40 * 25);
+    let later = r.atmosphere.flashes.lock().unwrap()[before..].to_vec();
+    assert!(!later.is_empty() && later.iter().all(|(_, f)| (f64::from(f.pos[0]) - ax).abs() >= 1.0 || (f64::from(f.pos[2]) - az).abs() >= 1.0),
+        "no bolt on Alice under her roof");
+    println!("ok  a bolt aimed at a player: {} on Alice in the open, burning her 200 ticks; none under a roof", flashes.len());
+}
+
 fn life_check() {
     // The bolt goes six blocks ahead of her; widen the reach so it counts.
     let prelude = "wx_overrides = { STRIKE_ALIGHT_RADIUS = 8 }";
