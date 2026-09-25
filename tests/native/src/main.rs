@@ -741,7 +741,7 @@ fn survey_check() {
     r.stand(ALICE, 100.0, 0.0, "tiamat_default_world:dirt");
     r.join(ALICE, 100.0, dome_y(100.0, 0.0) + 1.0, 0.0);
     r.tick(1);
-    let (mut falling, mut storm, mut wettest, mut n) = (0.0, 0.0, 0.0f64, 0.0);
+    let (mut falling, mut storm, mut clear, mut wettest, mut n) = (0.0, 0.0, 0.0, 0.0f64, 0.0);
     for i in 0..12 {
         let t = 0.2 + 0.05 * f64::from(i);
         let z = 7000.0 * f64::from(i % 3) - 7000.0;
@@ -750,11 +750,13 @@ fn survey_check() {
         let f = number_after(&reply, "falling ");
         falling += f;
         storm += number_after(&reply, "storm ");
+        clear += number_after(&reply, "clear ");
         wettest = wettest.max(f);
         n += 1.0;
     }
-    let (falling, storm) = (falling / n, storm / n);
-    println!("ok  survey: something falls {falling:.0}% of the year, a storm {storm:.0}%, {wettest:.0}% at the wettest place");
+    let (falling, storm, clear) = (falling / n, storm / n, clear / n);
+    println!("ok  survey: clear {clear:.0}% of the year, something falls {falling:.0}%, a storm {storm:.0}%, {wettest:.0}% at the wettest place");
+    assert!((55.0..=70.0).contains(&clear), "clear {clear:.0}% of the year, wanted about 60");
     assert!((10.0..=25.0).contains(&falling), "it rains {falling:.0}% of the year");
     assert!(storm <= 10.0, "it storms {storm:.0}% of the year");
     assert!(wettest <= 40.0, "somewhere is wet {wettest:.0}% of the year");
@@ -986,10 +988,11 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(r.sounds.stops.lock().unwrap().len() > stops, "the loop stopped");
     println!("ok  cleared: HUD empty, rain and sky cleared, loop stopped");
 
-    // A clear sky keeps a few white clouds, and the floor has not moved.
+    // A clear sky is nearly cloudless (2026-09-25): a few small heaps and a
+    // wisp of the mackerel layer, nothing heavy, and the floor has not moved.
     let fair = r.clouds_of(ALICE).expect("a clear sky still sends clouds");
-    assert!(fair.cover > 0.0 && fair.cover < 0.3 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
-    assert!(fair.altocumulus > 0.2 && fair.stratocumulus == 0.0 && fair.cumulonimbus == 0.0, "a mackerel sky and nothing heavy: {fair:?}");
+    assert!(fair.cover > 0.0 && fair.cover <= 0.1 && fair.darkness < 0.05, "fair-weather cloud: {fair:?}");
+    assert!(fair.altocumulus <= 0.1 && fair.stratocumulus == 0.0 && fair.cumulonimbus == 0.0, "nearly cloudless: {fair:?}");
     assert_eq!(fair.base, Some(floor));
     // The square's own shares are still easing from the storm to the clear
     // sky, and every step of that is a re-send: let it finish before looking

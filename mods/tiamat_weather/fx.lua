@@ -719,11 +719,14 @@ end
 -- stratocumulus sheet; a storm and a blizzard stratocumulus under
 -- cumulonimbus; a mega storm cumulonimbus 1. A precipitating kind eases from
 -- the cloudy sky to its own as its intensity rises, so the sheet closes and
--- the towers rise as the rain arrives. The supercell sky costs the client
+-- the towers rise as the rain arrives. Clear is NEARLY cloudless since
+-- 2026-09-25 ("nearly cloudless clear skies about 60% of all play time"):
+-- a few small heaps and a wisp of the mackerel layer, where it was 0.15 and
+-- 0.25 and read as a partly cloudy day. The supercell sky costs the client
 -- about three cumulus decks (the engine's own figure), which is why only a
 -- mega storm asks for it.
 M.CLOUDS = {
-    clear     = { cover = 0.15, strato = 0.00, alto = 0.25, nimbus = 0.00, darkness = 0.0 },
+    clear     = { cover = 0.06, strato = 0.00, alto = 0.08, nimbus = 0.00, darkness = 0.0 },
     cloudy    = { cover = 0.55, strato = 0.40, alto = 0.30, nimbus = 0.00, darkness = 0.05 },
     rain      = { cover = 0.30, strato = 0.85, alto = 0.10, nimbus = 0.00, darkness = 0.45 },
     storm     = { cover = 0.40, strato = 0.70, alto = 0.00, nimbus = 0.60, darkness = 0.90 },

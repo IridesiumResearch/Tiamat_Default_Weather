@@ -46,8 +46,10 @@ return {
     -- stormed 60% of it, because the humidity field is so wide that a wet
     -- place was wet for good. Now 18% falling, 7% storm, 31% at the wettest.
     -- The weight is what keeps a wet belt wetter without making it a monsoon.
+    -- CLOUDY_AT sets the clear share: the designer wants nearly cloudless
+    -- skies about 60% of play time, and 0.12 is 64% (0.10 was 61%, 0.20 71%).
     MOISTURE_WEIGHT = 0.4,
-    CLOUDY_AT = 0.10,
+    CLOUDY_AT = 0.12,
     RAIN_AT = 0.32,
     STORM_AT = 0.46,
 
