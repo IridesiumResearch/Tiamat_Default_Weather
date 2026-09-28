@@ -552,6 +552,12 @@ impl Rig {
             vm.load_mod(id, source, &dir).unwrap_or_else(|e| panic!("{id} loads: {e:?}"));
         }
         vm.freeze().unwrap();
+        // What the server hands the VM once its fluid registry is built, so
+        // `game.fluid_id` answers (engine 1c475a8).
+        vm.set_fluid_ids(&[
+            ("tiamat_weather:rainwater".to_owned(), FluidId(RAIN_ID)),
+            ("tiamat_default_world:water".to_owned(), FluidId(WATER_ID)),
+        ]);
         vm.set_world_seed(SEED);
         let materials: HashMap<String, MaterialId> = vm.registered_blocks().into_iter().collect();
         *world.names.lock().unwrap() = materials.clone();
@@ -1220,13 +1226,10 @@ fn puddle_check() {
     r.tick(1);
     r.say(ALICE, "/weather set rain 30");
     r.tick(20 * 60 * 2);
-    // The one-cell write and clear over Alice's head is rainwater's id being
-    // read off the world, once; everything else is a puddle.
-    let all = r.world.fluid_writes.lock().unwrap().clone();
-    let probes: Vec<_> = all.iter().filter(|w| w.1.y == top + 1 + 32).collect();
-    assert_eq!(probes.len(), 2, "one probe, written and cleared: {probes:?}");
-    assert!(!r.world.fluids.lock().unwrap().contains_key(&(probes[0].1.x, probes[0].1.y, probes[0].1.z)), "the probe left nothing");
-    let writes: Vec<_> = all.iter().filter(|w| w.1.y != top + 1 + 32).cloned().collect();
+    // Rainwater's id comes from `game.fluid_id` (engine 1c475a8), so the old
+    // probe — a cell written into the sky and read back — never runs.
+    let writes = r.world.fluid_writes.lock().unwrap().clone();
+    assert!(writes.iter().all(|w| w.1.y != top + 1 + 32), "no probe in the sky: fluid_id answered");
     assert!(!writes.is_empty(), "two minutes of rain left puddles");
     for (_, pos, id, volume) in &writes {
         assert_eq!(*id, RAIN_ID, "only rainwater is written");

@@ -94,6 +94,15 @@ local BESIDE = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 local rain_fluid = nil
 
 local function learn_rain_fluid(where)
+    -- Engine 1c475a8 (ask W24) answers it by name. The probe below is for
+    -- an engine older than that.
+    if type(game.fluid_id) == "function" then
+        local ok, id = pcall(game.fluid_id, blocks.RAINWATER)
+        if ok and id ~= nil then
+            rain_fluid = id
+            return
+        end
+    end
     local at = { x = math.floor(where.x), y = math.floor(where.y) + PROBE_ABOVE, z = math.floor(where.z) }
     -- Empty means no terrain and no fluid: nothing there to disturb.
     if game.surface_at{ x = at.x, z = at.z, from = at.y, depth = 1 } ~= nil then
