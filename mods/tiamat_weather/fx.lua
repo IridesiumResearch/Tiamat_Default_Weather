@@ -150,7 +150,7 @@ local SHARE = { off = 0, low = 1, full = 2 }
 M.stats = {
     precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0, shaft = 0,
     -- Lightning that found ground, and what it did there.
-    strikes_grounded = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
+    strikes_grounded = 0, strikes_roofed = 0, strikes_unseen = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
     -- Fire, presented.
     fire_loops = 0, smoke = 0,
 }
@@ -297,11 +297,14 @@ end
 local BLOCKS_PER_TICK = 19
 local pending = {}
 
--- Where the ground under a bolt is looked for: from this far over the
--- player's feet, this far down. A canopy or a tower stands well over the
--- player; a valley floor lies well under a player on its rim.
-local STRIKE_SCAN_ABOVE = 64
-local STRIKE_SCAN = 128
+-- Where the ground under a bolt is looked for: from the cloud floor over the
+-- column, down, in steps of the engine's longest `surface_at`. It used to
+-- start 64 blocks over the player's feet, which for a player deep in a cave
+-- is inside the rock, and the "ground" found there was the cave's own roof
+-- or floor: a bolt underground (2026-09-28: "lightning and weather should
+-- not affect the underground").
+local STRIKE_SCAN = 256
+local STRIKE_SCANS = 3
 -- Sparks at the point of impact: what shows a strike by day, when the flash
 -- does not (the renderer caps the sun at daylight).
 local SPARKS = { count = 24, colour = { r = 1, g = 0.95, b = 0.7, a = 0.9 }, size = 0.12,
@@ -364,43 +367,81 @@ local function flicker(tick)
     flickers = keep
 end
 
+-- Both defined further down, with the clouds and the tick: the cloud floor
+-- over a column, and how much of the sky a player's head is under.
+local floor_at, exposure_at
+
+-- How much of the sky each player was under at the last evaluation, 0 to 15.
+M.exposure = {}
+
+-- The ground under OPEN SKY in column (x, z), as `surface_at` answers it, or
+-- nil. Looked for from the cloud floor down, and kept only if the sun
+-- reaches the block over it: a column whose first solid block from the
+-- cloud floor is still rock (a peak standing through the deck) is not
+-- struck, and nothing under a roof ever is.
+local function sky_ground(x, z, near_y)
+    local from = floor_at(x, near_y, z)
+    for _ = 1, STRIKE_SCANS do
+        local top = game.surface_at{ x = x, z = z, from = from, depth = STRIKE_SCAN }
+        if top ~= nil then
+            if game.get_light({ x = x, y = top.y + 1, z = z }).sun == 15 then
+                return top
+            end
+            return nil
+        end
+        from = from - STRIKE_SCAN
+    end
+    return nil
+end
+
+-- Whether anybody out under the sky is near enough to see a bolt at `at`.
+-- The flash and the thunder go to everybody within reach and neither can be
+-- addressed to one player (engine ask W28), so a bolt nobody in the open
+-- would see is not flashed or sounded at all: one player alone in a cave
+-- under a storm hears nothing of it. The ground still takes the strike.
+local function witnessed(at)
+    local reach = config.STRIKE_SEEN
+    for _, uuid in ipairs(controller.players()) do
+        local where = controller.where[uuid]
+        if where and (M.exposure[uuid] or 0) > 0
+            and math.abs(where.x - at.x) <= reach and math.abs(where.z - at.z) <= reach then
+            return true
+        end
+    end
+    return false
+end
+
 -- One bolt at column (x, z), from the square's storm. `top` is the ground
--- there as `surface_at` answered it: nil to look it up here, false when the
--- caller already looked and found nothing, in which case the flash goes
--- where it always went — STRIKE_ABOVE over the player — and touches nothing.
+-- there as `sky_ground` answered it, or nil to look it up here. A column
+-- with no ground under open sky is not struck at all, and answers false.
 -- `rng` carries on the caller's stream, so the odds below stay on the one
 -- deterministic draw per strike.
--- Defined with the tick, below; a strike asks it whether a player is out in
--- the open.
-local exposure_at
-
 local function bolt(square, tick, x, z, rng, top, hit_ticks)
     local rep = square.rep
     local up = mega_of(square)
     if top == nil then
-        top = game.surface_at{ x = x, z = z, from = math.floor(rep.y) + STRIKE_SCAN_ABOVE, depth = STRIKE_SCAN }
+        top = sky_ground(x, z, rep.y)
     end
-    local at
-    if top then
-        at = { x = x, y = top.y + 1, z = z }
-        M.stats.strikes_grounded = M.stats.strikes_grounded + 1
-    else
-        at = { x = x, y = math.floor(rep.y) + config.STRIKE_ABOVE, z = z }
+    if top == nil then
+        M.stats.strikes_roofed = M.stats.strikes_roofed + 1
+        return false
     end
-    flash_at(at, 1.0)
-    -- A bolt is several return strokes down one channel, so it flickers:
-    -- up to FLICKERS more flashes a few ticks apart, each dimmer. One flash
-    -- of six ticks read as a camera flash ("too fast", 2026-09-25).
-    local after = tick
-    for n = 1, rng:below(FLICKERS + 1) do
-        after = after + FLICKER_GAP_LOW + rng:below(FLICKER_GAP_SPREAD + 1)
-        flickers[#flickers + 1] = { at = at, when = after, intensity = 1.0 - 0.2 * n }
-    end
-    -- Thunder, once the sound has had time to travel from there to here.
-    local far = math.max(math.abs(x - math.floor(rep.x)), math.abs(z - math.floor(rep.z)))
-    pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
-        gain = 0.5 + square.intensity / 2000 + 0.5 * up }
-    if top then
+    local at = { x = x, y = top.y + 1, z = z }
+    M.stats.strikes_grounded = M.stats.strikes_grounded + 1
+    if witnessed(at) then
+        flash_at(at, 1.0)
+        -- A bolt is several return strokes down one channel, so it flickers:
+        -- up to FLICKERS more flashes a few ticks apart, each dimmer. One
+        -- flash of six ticks read as a camera flash ("too fast", 2026-09-25).
+        local after = tick
+        for n = 1, rng:below(FLICKERS + 1) do
+            after = after + FLICKER_GAP_LOW + rng:below(FLICKER_GAP_SPREAD + 1)
+            flickers[#flickers + 1] = { at = at, when = after, intensity = 1.0 - 0.2 * n }
+        end
+        -- Thunder, once the sound has had time to travel from there to here.
+        local far = math.max(math.abs(x - math.floor(rep.x)), math.abs(z - math.floor(rep.z)))
+        pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
+            gain = 0.5 + square.intensity / 2000 + 0.5 * up }
         game.emit_particles{
             pos = { x = x + 0.5, y = top.y + 1.2, z = z + 0.5 },
             count = SPARKS.count,
@@ -413,6 +454,10 @@ local function bolt(square, tick, x, z, rng, top, hit_ticks)
             collide = true,
             radius = SPARKS.seen,
         }
+    else
+        M.stats.strikes_unseen = M.stats.strikes_unseen + 1
+    end
+    do
         -- What the bolt did to the ground it hit. Fuel may catch, on the
         -- lightning odds (fire.lua rolls no odds of its own: the caller
         -- knows what kind of spark this is). Bare turf that is not fuel may
@@ -436,7 +481,7 @@ local function bolt(square, tick, x, z, rng, top, hit_ticks)
     -- Whoever stands beside a landed bolt burns, through Life (fire.lua's
     -- `set_alight`; false without Life). A player's body carries its owner's
     -- UUID, and Life wants the UUID for a player and the id for a creature.
-    if top then
+    do
         for _, id in ipairs(game.entities_in_radius(at, config.STRIKE_ALIGHT_RADIUS)) do
             local body = game.entity(id)
             if body ~= nil and wx.fire.set_alight(body.owner or id, hit_ticks or config.STRIKE_ALIGHT_TICKS) then
@@ -445,6 +490,7 @@ local function bolt(square, tick, x, z, rng, top, hit_ticks)
         end
     end
     tell_listeners(at.x, at.y, at.z)
+    return true
 end
 
 -- A storm's own strike: one in THUNDER_ODDS evaluations, and then the
@@ -486,21 +532,20 @@ local function strike(square, tick)
     end
     local rep = square.rep
     local rx, rz = math.floor(rep.x), math.floor(rep.z)
-    local from = math.floor(rep.y) + STRIKE_SCAN_ABOVE
     local best, bx, bz = nil, nil, nil
     for _ = 1, config.STRIKE_CANDIDATES do
         local x = rx + rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
         local z = rz + rng:below(2 * config.STRIKE_REACH + 1) - config.STRIKE_REACH
-        if bx == nil then
-            -- The first candidate is where the bolt goes if no column answers.
-            bx, bz = x, z
-        end
-        local top = game.surface_at{ x = x, z = z, from = from, depth = STRIKE_SCAN }
+        local top = sky_ground(x, z, rep.y)
         if top and (best == nil or top.y > best.y) then
             best, bx, bz = top, x, z
         end
     end
-    bolt(square, tick, bx, bz, rng, best or false)
+    -- No candidate under open sky (unloaded ground, or nothing but the
+    -- inside of a mountain): no bolt, rather than one flashing in the rock.
+    if best ~= nil then
+        bolt(square, tick, bx, bz, rng, best)
+    end
 end
 
 -- A bolt aimed at a column, for /weather strike. `square` is the caller's:
@@ -509,7 +554,7 @@ end
 function M.strike_at(x, z, square)
     x, z = math.floor(x), math.floor(z)
     local rng = game.rng_stream({ x = x, y = wx.now % Y_WRAP, z = z, seed = game.world_seed }, "wx_thunder")
-    bolt(square, wx.now, x, z, rng, nil)
+    return bolt(square, wx.now, x, z, rng, nil)
 end
 
 local function thunder(tick)
@@ -687,7 +732,7 @@ M.has_clouds = HAS_CLOUDS
 -- biome on the Spindle): the Crown's mountains stand up to 0.9 km over the
 -- dome, and a floor CLOUD_ABOVE over the dome sat mid-mountain there. Still
 -- stepped, and still a floor a player can climb above on the highest peaks.
-local function floor_at(x, y, z)
+function floor_at(x, y, z)
     local ground = climate.surface_y(x, z) + climate.cloud_lift(x, y, z)
     local step = config.CLOUD_BASE_STEP
     return (math.floor(ground + config.CLOUD_ABOVE) // step) * step
@@ -1029,6 +1074,7 @@ controller.on_evaluated(function()
             -- 15 is open sky or a forest; less is a cave mouth, an overhang
             -- or a doorway.
             local exposure = exposure_at(head)
+            M.exposure[uuid] = exposure
             if exposure > 0 then
                 precipitation_for(uuid, square, share, wind, was)
             else
@@ -1063,6 +1109,7 @@ end)
 wx.on_leave(function(uuid)
     sent[uuid] = nil
     M.clouds_sent[uuid] = nil
+    M.exposure[uuid] = nil
 end)
 
 return M

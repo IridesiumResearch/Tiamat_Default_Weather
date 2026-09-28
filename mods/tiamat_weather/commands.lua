@@ -409,7 +409,9 @@ local function strike(player)
     if not (square and square.kind and square.rep) then
         square = { rep = pos, intensity = 1000, mega = 0, cx = cx, cz = cz }
     end
-    wx.fx.strike_at(x, z, square)
+    if not wx.fx.strike_at(x, z, square) then
+        return string.format("no open sky over %d,%d to strike", x, z)
+    end
     return string.format("a bolt at %d,%d", x, z)
 end
 

@@ -2054,6 +2054,9 @@ fn lightning_check() {
             r.world.put(ax + dx, top + 5, az + dz, leaves, FULL);
         }
     }
+    // Under leaves the sun is dimmed, not gone, as the engine lights it: she
+    // is out in the storm (a forest is open sky), so she sees the bolts.
+    r.world.canopies.lock().unwrap().push((ax, az));
     r.join(ALICE, FIRE_X, f64::from(top + 1), FIRE_Z);
     r.tick(41);
     let set = r.reply(ALICE, "/weather set storm 10");
@@ -2221,14 +2224,19 @@ fn player_strike_check() {
     let hex: String = ALICE.iter().map(|b| format!("{b:02x}")).collect();
     let told = r.reply(ALICE, "/life");
     assert!(told.contains(&format!("{hex}:200")), "Alice burns for ten seconds: {told}");
-    // Under a roof the aimed bolt finds nobody and goes where bolts go.
+    // Under a roof the aimed bolt finds nobody, and since she is the only
+    // player and not out under the sky, the storm's other bolts are neither
+    // seen nor heard (2026-09-28: weather does not reach the underground).
     r.world.roofs.lock().unwrap().push((ax as i32, az as i32));
     let before = r.atmosphere.flashes.lock().unwrap().len();
+    let heard = r.sounds.plays.lock().unwrap().len();
+    let alight = r.reply(ALICE, "/life").matches(&hex).count();
     r.tick(40 * 25);
     let later = r.atmosphere.flashes.lock().unwrap()[before..].to_vec();
-    assert!(!later.is_empty() && later.iter().all(|(_, f)| (f64::from(f.pos[0]) - ax).abs() >= 1.0 || (f64::from(f.pos[2]) - az).abs() >= 1.0),
-        "no bolt on Alice under her roof");
-    println!("ok  a bolt aimed at a player: {} on Alice in the open, burning her 200 ticks; none under a roof", flashes.len());
+    assert!(later.is_empty(), "flashes seen from under a roof: {later:?}");
+    assert_eq!(r.sounds.plays.lock().unwrap().len(), heard, "thunder heard under a roof");
+    assert_eq!(r.reply(ALICE, "/life").matches(&hex).count(), alight, "Alice struck under her roof");
+    println!("ok  a bolt aimed at a player: {} on Alice in the open, burning her 200 ticks; under a roof none, and nothing seen or heard", flashes.len());
 }
 
 fn life_check() {
