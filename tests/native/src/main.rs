@@ -69,8 +69,8 @@ impl storage::Access for Storage {
             }
         }
     }
-    fn keys(&self, mod_id: &str) -> Vec<String> {
-        self.0.lock().unwrap().keys().filter(|(m, _)| m == mod_id).map(|(_, k)| k.clone()).collect()
+    fn keys(&self, mod_id: &str, prefix: &str) -> Vec<String> {
+        self.0.lock().unwrap().keys().filter(|(m, k)| m == mod_id && k.starts_with(prefix)).map(|(_, k)| k.clone()).collect()
     }
 }
 
@@ -138,11 +138,14 @@ struct Sounds {
     plays: Mutex<Vec<String>>,
     loops: Mutex<Vec<(String, String, f32)>>,
     stops: Mutex<Vec<String>>,
+    /// Who each one-shot was addressed to, beside `plays`: `None` is everyone.
+    play_to: Mutex<Vec<Option<[u8; 32]>>>,
 }
 
 impl sound::Access for Sounds {
     fn play(&self, request: &PlayRequest) -> u32 {
         self.plays.lock().unwrap().push(request.sound.clone());
+        self.play_to.lock().unwrap().push(request.player.map(|p| *p.as_bytes()));
         1
     }
     fn start_loop(&self, request: &LoopRequest) -> u32 {
@@ -186,6 +189,7 @@ struct Atmosphere {
     sky_calls: Mutex<Vec<([u8; 32], Option<SkyModifier>)>>,
     rain_calls: Mutex<Vec<([u8; 32], Option<Precipitation>)>>,
     flashes: Mutex<Vec<(u64, FlashRequest)>>,
+    bolts: Mutex<Vec<(u64, tiamat_core::lightning::LightningRequest)>>,
     clouds: Mutex<HashMap<[u8; 32], Option<Clouds>>>,
     cloud_calls: Mutex<usize>,
     maps: Mutex<HashMap<[u8; 32], Option<CloudMap>>>,
@@ -199,6 +203,10 @@ impl atmosphere::Access for Atmosphere {
     }
     fn flash(&self, request: &FlashRequest) -> u32 {
         self.flashes.lock().unwrap().push((*self.now.lock().unwrap(), request.clone()));
+        1
+    }
+    fn lightning(&self, request: &tiamat_core::lightning::LightningRequest) -> u32 {
+        self.bolts.lock().unwrap().push((*self.now.lock().unwrap(), request.clone()));
         1
     }
     fn set_clouds(&self, player: PlayerUuid, clouds: Option<Clouds>) -> bool {
@@ -704,6 +712,7 @@ fn main() {
     fire_lava_check();
     life_check();
     player_strike_check();
+    cave_lightning_check();
     cloud_lift_check();
     plain_check();
     hud_check();
@@ -742,6 +751,17 @@ fn climate_check() {
 // How often it rains (2026-09-25: "it rains far too often"). The survey is
 // the weather function over a year at five places round the player; the
 // Verdant belt is this mod's wettest ground, the glass waste its driest.
+// Underground the sky is the cave's: one colour laid over the keyframes
+// whole, so the fog down a tunnel is the same at noon and at midnight, and
+// none of the storm's fog, darkness or grey reaches it (2026-09-28).
+fn assert_cave_sky(r: &Rig, who: [u8; 32], place: &str) {
+    let sky = r.sky_of(who).unwrap_or_else(|| panic!("{place}: no cave sky was set"));
+    assert_eq!(sky.sky_mix, 1.0, "{place}: the cave's colour replaces the clock's: {sky:?}");
+    assert_eq!(sky.sky, [0.05, 0.055, 0.065], "{place}: the cave's own colour: {sky:?}");
+    assert!(sky.fog_distance == 1.0 && sky.intensity == 1.0 && sky.saturation == 1.0,
+        "{place}: nothing of the storm: {sky:?}");
+}
+
 fn survey_check() {
     let mut r = Rig::new(true, Arc::new(Storage::default()));
     r.stand(ALICE, 100.0, 0.0, "tiamat_default_world:dirt");
@@ -922,7 +942,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     let stops = r.sounds.stops.lock().unwrap().len();
     r.tick(41);
     assert!(r.rain_of(ALICE).is_none(), "no rain in a cave");
-    assert!(r.sky_of(ALICE).is_none(), "nor the storm's fog: {:?}", r.sky_of(ALICE));
+    assert_cave_sky(&r, ALICE, "in a cave");
     assert!(r.sounds.stops.lock().unwrap().len() > stops, "nor its loop");
     assert!(r.clouds_of(ALICE).is_some(), "the clouds stay set for when they come out");
     r.world.roofs.lock().unwrap().retain(|c| *c != head);
@@ -955,7 +975,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     build(&r, &sides[3..], stone, FULL);
     r.tick(41);
     assert!(r.rain_of(ALICE).is_none(), "no rain down a deep shaft");
-    assert!(r.sky_of(ALICE).is_none(), "nor the storm's fog: {:?}", r.sky_of(ALICE));
+    assert_cave_sky(&r, ALICE, "down a deep shaft");
     build(&r, &sides, MaterialId(0), 0);
     r.tick(41);
     assert!(r.sky_of(ALICE).is_some_and(|s| s.fog_distance < 0.4), "the walls gone, the storm is back");
@@ -1900,7 +1920,7 @@ fn fire_restart_check() {
     r.tick(300);
     let alight = r.fires_in_world();
     assert!(alight > 0, "alight at the restart");
-    let saved: Vec<String> = storage.keys(MOD).into_iter().filter(|k| k.starts_with("fire:")).collect();
+    let saved: Vec<String> = storage.keys(MOD, "").into_iter().filter(|k| k.starts_with("fire:")).collect();
     assert!(saved.iter().any(|k| k.starts_with("fire:blaze:")), "the blaze is in storage: {saved:?}");
 
     let mut again = Rig::custom(Some(&spindle), storage.clone(), "", &[]);
@@ -2240,6 +2260,35 @@ fn player_strike_check() {
     assert_eq!(r.sounds.plays.lock().unwrap().len(), heard, "thunder heard under a roof");
     assert_eq!(r.reply(ALICE, "/life").matches(&hex).count(), alight, "Alice struck under her roof");
     println!("ok  a bolt aimed at a player: {} on Alice in the open, burning her 200 ticks; under a roof none, and nothing seen or heard", flashes.len());
+}
+
+// No lightning underground, whoever stands in the open beside you
+// (2026-09-28). Alice in the open and Bob under a roof twenty blocks away,
+// in one storm: every flash, drawn bolt and clap is addressed to Alice by
+// name, none to Bob and none to everyone.
+fn cave_lightning_check() {
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    let (x, z) = (0.5 * 59000.0, 100.0);
+    let top = r.stand(ALICE, x, z, "tiamat_default_world:dirt");
+    r.join(ALICE, x, f64::from(top + 1), z);
+    r.join(BOB, x + 20.0, f64::from(top + 1), z);
+    r.world.roofs.lock().unwrap().push(((x + 20.0) as i32, z as i32));
+    r.tick(41);
+    r.say(ALICE, "/weather set storm 30");
+    r.tick(20 * 60 * 2);
+    let alice = Some(PlayerUuid::from_bytes(ALICE));
+    let flashes = r.atmosphere.flashes.lock().unwrap().clone();
+    let bolts = r.atmosphere.bolts.lock().unwrap().clone();
+    let claps = r.sounds.play_to.lock().unwrap().clone();
+    assert!(!flashes.is_empty() && !bolts.is_empty() && !claps.is_empty(), "the storm struck: {} flashes, {} bolts, {} claps", flashes.len(), bolts.len(), claps.len());
+    assert!(flashes.iter().all(|(_, f)| f.player == alice), "a flash went to someone but Alice");
+    assert!(bolts.iter().all(|(_, b)| b.player == alice), "a drawn bolt went to someone but Alice");
+    assert!(claps.iter().all(|p| *p == Some(ALICE)), "thunder went to someone but Alice");
+    let (b, _) = &bolts[0];
+    let bolt = &bolts[0].1.lightning;
+    assert!(bolt.from[1] > bolt.to[1] + 60.0, "a bolt falls from the cloud floor to the ground: {bolt:?} at {b}");
+    assert_cave_sky(&r, BOB, "under a roof in a storm");
+    println!("ok  lightning under a roof: {} flashes, {} bolts, {} claps, all to the player in the open; the one under the roof has the cave's sky", flashes.len(), bolts.len(), claps.len());
 }
 
 fn life_check() {

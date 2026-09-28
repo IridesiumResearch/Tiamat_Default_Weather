@@ -150,7 +150,7 @@ local SHARE = { off = 0, low = 1, full = 2 }
 M.stats = {
     precipitation = 0, sky = 0, loops = 0, flashes = 0, thunder = 0, clouds = 0, underground = 0, canopy = 0, shaft = 0,
     -- Lightning that found ground, and what it did there.
-    strikes_grounded = 0, strikes_roofed = 0, strikes_unseen = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
+    strikes_grounded = 0, strikes_roofed = 0, strikes_unseen = 0, bolts_drawn = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
     -- Fire, presented.
     fire_loops = 0, smoke = 0,
 }
@@ -216,7 +216,27 @@ end
 -- sky the player is under: the engine pulls a modifier's fog in everywhere,
 -- so a blizzard's fog would follow them down a cave. The particles setting
 -- does not touch this: the weather's own daylight is not a particle.
+--
+-- **Underground the sky is the cave's** (2026-09-28: "the day/night cycle
+-- must not affect the colour of cave fog"). The fog is drawn in the sky's
+-- colour, and the sky's colour follows the clock, so a cave's fog was pale
+-- blue at noon and black at midnight. With no sky at all over the head
+-- (exposure 0), this lays CAVE_SKY over the keyframes whole: one colour at
+-- every hour, eased in and out at the cave mouth like the rest.
+M.CAVE_SKY = { 0.05, 0.055, 0.065 }
+
 local function sky_for(uuid, square, exposure, was)
+    if exposure <= 0 then
+        if was.sky ~= "cave" then
+            was.sky = "cave"
+            game.set_sky_modifier(uuid, {
+                intensity = 1.0, sky = M.CAVE_SKY, sky_mix = 1.0, fog_distance = 1.0,
+                saturation = 1.0, ease_ticks = config.EASE_TICKS,
+            })
+            M.stats.sky = M.stats.sky + 1
+        end
+        return
+    end
     local row = M.SKY[square.kind]
     local far = square.intensity * exposure // 15 / 1000
     if row == nil or far <= 0 then
@@ -340,7 +360,9 @@ local FLICKER_GAP_LOW = 3
 local FLICKER_GAP_SPREAD = 4
 local flickers = {}
 
-local function flash_at(at, intensity)
+-- Sent to one player at a time (engine cbbbc5e, ask W28): only those out
+-- under the sky are told, so nobody underground sees a flash lean the fog.
+local function flash_at(at, intensity, uuid)
     game.flash{
         pos = at,
         radius = config.STRIKE_SEEN,
@@ -348,6 +370,7 @@ local function flash_at(at, intensity)
         colour = { 0.9, 0.92, 1.0 },
         attack_ticks = 2,
         decay_ticks = FLASH_DECAY,
+        player = uuid,
     }
     M.stats.flashes = M.stats.flashes + 1
 end
@@ -359,7 +382,9 @@ local function flicker(tick)
     local keep = {}
     for _, f in ipairs(flickers) do
         if tick >= f.when then
-            flash_at(f.at, f.intensity)
+            for _, uuid in ipairs(f.who) do
+                flash_at(f.at, f.intensity, uuid)
+            end
         else
             keep[#keep + 1] = f
         end
@@ -394,22 +419,32 @@ local function sky_ground(x, z, near_y)
     return nil
 end
 
--- Whether anybody out under the sky is near enough to see a bolt at `at`.
--- The flash and the thunder go to everybody within reach and neither can be
--- addressed to one player (engine ask W28), so a bolt nobody in the open
--- would see is not flashed or sounded at all: one player alone in a cave
--- under a storm hears nothing of it. The ground still takes the strike.
-local function witnessed(at)
+-- Who sees a bolt at `at`: every player out under any of the sky (exposure
+-- over 0 at the last evaluation) within STRIKE_SEEN of it, with how far off
+-- they are. The flash, the drawn bolt and the thunder go to each of them by
+-- name (engine ask W28) and to nobody else, so a player underground sees and
+-- hears nothing of the storm, whoever stands at the cave mouth beside them.
+local function witnesses(at)
     local reach = config.STRIKE_SEEN
+    local who, far = {}, {}
     for _, uuid in ipairs(controller.players()) do
         local where = controller.where[uuid]
-        if where and (M.exposure[uuid] or 0) > 0
-            and math.abs(where.x - at.x) <= reach and math.abs(where.z - at.z) <= reach then
-            return true
+        if where and (M.exposure[uuid] or 0) > 0 then
+            local d = math.max(math.abs(where.x - at.x), math.abs(where.z - at.z))
+            if d <= reach then
+                who[#who + 1] = uuid
+                far[#far + 1] = math.floor(d)
+            end
         end
     end
-    return false
+    return who, far
 end
+
+-- The drawn bolt (engine 1eccb62, ask W26), from the cloud floor over the
+-- strike to the block it hit. One seed for everyone told, so they all see
+-- the same bolt; `radius` is measured from its top, so it is the flash's.
+local HAS_BOLTS = type(game.lightning) == "function"
+local BOLT_COLOUR = { 0.85, 0.8, 1.0 }
 
 -- One bolt at column (x, z), from the square's storm. `top` is the ground
 -- there as `sky_ground` answered it, or nil to look it up here. A column
@@ -428,20 +463,29 @@ local function bolt(square, tick, x, z, rng, top, hit_ticks)
     end
     local at = { x = x, y = top.y + 1, z = z }
     M.stats.strikes_grounded = M.stats.strikes_grounded + 1
-    if witnessed(at) then
-        flash_at(at, 1.0)
+    local who, far = witnesses(at)
+    if #who > 0 then
+        local seed = rng:below(1 << 30)
+        local sky = HAS_BOLTS and { x = x, y = math.max(floor_at(x, at.y, z), at.y + 64), z = z } or nil
+        local gain = 0.5 + square.intensity / 2000 + 0.5 * up
+        for i, uuid in ipairs(who) do
+            flash_at(at, 1.0, uuid)
+            if sky then
+                game.lightning{ from = sky, to = at, seed = seed, colour = BOLT_COLOUR,
+                    radius = 1024, player = uuid }
+                M.stats.bolts_drawn = M.stats.bolts_drawn + 1
+            end
+            -- Thunder, once the sound has had time to travel to this player.
+            pending[#pending + 1] = { at = at, when = tick + far[i] // BLOCKS_PER_TICK, gain = gain, who = uuid }
+        end
         -- A bolt is several return strokes down one channel, so it flickers:
         -- up to FLICKERS more flashes a few ticks apart, each dimmer. One
         -- flash of six ticks read as a camera flash ("too fast", 2026-09-25).
         local after = tick
         for n = 1, rng:below(FLICKERS + 1) do
             after = after + FLICKER_GAP_LOW + rng:below(FLICKER_GAP_SPREAD + 1)
-            flickers[#flickers + 1] = { at = at, when = after, intensity = 1.0 - 0.2 * n }
+            flickers[#flickers + 1] = { at = at, when = after, intensity = 1.0 - 0.2 * n, who = who }
         end
-        -- Thunder, once the sound has had time to travel from there to here.
-        local far = math.max(math.abs(x - math.floor(rep.x)), math.abs(z - math.floor(rep.z)))
-        pending[#pending + 1] = { at = at, when = tick + far // BLOCKS_PER_TICK,
-            gain = 0.5 + square.intensity / 2000 + 0.5 * up }
         game.emit_particles{
             pos = { x = x + 0.5, y = top.y + 1.2, z = z + 0.5 },
             count = SPARKS.count,
@@ -564,7 +608,8 @@ local function thunder(tick)
     local keep = {}
     for _, clap in ipairs(pending) do
         if tick >= clap.when then
-            game.play_sound{ sound = "thunder", pos = clap.at, radius = config.STRIKE_HEARD, gain = clap.gain }
+            game.play_sound{ sound = "thunder", pos = clap.at, radius = config.STRIKE_HEARD, gain = clap.gain,
+                player = clap.who }
             M.stats.thunder = M.stats.thunder + 1
         else
             keep[#keep + 1] = clap
