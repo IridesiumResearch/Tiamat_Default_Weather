@@ -751,15 +751,12 @@ fn climate_check() {
 // How often it rains (2026-09-25: "it rains far too often"). The survey is
 // the weather function over a year at five places round the player; the
 // Verdant belt is this mod's wettest ground, the glass waste its driest.
-// Underground the sky is the cave's: one colour laid over the keyframes
-// whole, so the fog down a tunnel is the same at noon and at midnight, and
-// none of the storm's fog, darkness or grey reaches it (2026-09-28).
+// Underground no sky modifier is sent at all: the fog down a tunnel is the
+// sky owner's `cave_fog`, which the engine blends in by the sky light at
+// each fragment (engine 0fdbca8, ask W29), so no storm's fog, darkness or
+// grey, and no hour of the clock, reaches it.
 fn assert_cave_sky(r: &Rig, who: [u8; 32], place: &str) {
-    let sky = r.sky_of(who).unwrap_or_else(|| panic!("{place}: no cave sky was set"));
-    assert_eq!(sky.sky_mix, 1.0, "{place}: the cave's colour replaces the clock's: {sky:?}");
-    assert_eq!(sky.sky, [0.05, 0.055, 0.065], "{place}: the cave's own colour: {sky:?}");
-    assert!(sky.fog_distance == 1.0 && sky.intensity == 1.0 && sky.saturation == 1.0,
-        "{place}: nothing of the storm: {sky:?}");
+    assert!(r.sky_of(who).is_none(), "{place}: a sky modifier underground: {:?}", r.sky_of(who));
 }
 
 fn survey_check() {
@@ -2288,7 +2285,7 @@ fn cave_lightning_check() {
     let bolt = &bolts[0].1.lightning;
     assert!(bolt.from[1] > bolt.to[1] + 60.0, "a bolt falls from the cloud floor to the ground: {bolt:?} at {b}");
     assert_cave_sky(&r, BOB, "under a roof in a storm");
-    println!("ok  lightning under a roof: {} flashes, {} bolts, {} claps, all to the player in the open; the one under the roof has the cave's sky", flashes.len(), bolts.len(), claps.len());
+    println!("ok  lightning under a roof: {} flashes, {} bolts, {} claps, all to the player in the open; none to the one under the roof, who has no sky modifier", flashes.len(), bolts.len(), claps.len());
 }
 
 fn life_check() {

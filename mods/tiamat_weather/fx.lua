@@ -217,26 +217,13 @@ end
 -- so a blizzard's fog would follow them down a cave. The particles setting
 -- does not touch this: the weather's own daylight is not a particle.
 --
--- **Underground the sky is the cave's** (2026-09-28: "the day/night cycle
--- must not affect the colour of cave fog"). The fog is drawn in the sky's
--- colour, and the sky's colour follows the clock, so a cave's fog was pale
--- blue at noon and black at midnight. With no sky at all over the head
--- (exposure 0), this lays CAVE_SKY over the keyframes whole: one colour at
--- every hour, eased in and out at the cave mouth like the rest.
-M.CAVE_SKY = { 0.05, 0.055, 0.065 }
-
+-- **Underground the fog is the cave's, and that is the engine's** (engine
+-- 0fdbca8, ask W29): fog is blended per fragment by the sky light there,
+-- to the sky owner's `cave_fog` where none reaches, so the clock, this
+-- modifier and a flash lean only the sky-lit share. Exposure 0 is simply no
+-- modifier. (For a day, 2026-09-28, this laid a cave colour over the whole
+-- sky instead, which fogged the daylight out of a tunnel's mouth too.)
 local function sky_for(uuid, square, exposure, was)
-    if exposure <= 0 then
-        if was.sky ~= "cave" then
-            was.sky = "cave"
-            game.set_sky_modifier(uuid, {
-                intensity = 1.0, sky = M.CAVE_SKY, sky_mix = 1.0, fog_distance = 1.0,
-                saturation = 1.0, ease_ticks = config.EASE_TICKS,
-            })
-            M.stats.sky = M.stats.sky + 1
-        end
-        return
-    end
     local row = M.SKY[square.kind]
     local far = square.intensity * exposure // 15 / 1000
     if row == nil or far <= 0 then
