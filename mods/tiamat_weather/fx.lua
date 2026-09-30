@@ -84,6 +84,10 @@ M.PRECIP = {
 -- intensity 0, so a storm darkens the sky as it eases in.
 M.SKY = {
     cloudy    = { intensity = 0.90, sky = { 0.72, 0.75, 0.80 }, sky_mix = 0.35, fog = 0.85, saturation = 0.90 },
+    -- Morning fog: the world a few dozen blocks deep, pale, the sun softened.
+    -- `fog` is a share of the player's own fog distance, so at 0.12 a view
+    -- of twelve chunks sees about twenty blocks into it.
+    fog       = { intensity = 0.85, sky = { 0.80, 0.82, 0.84 }, sky_mix = 0.70, fog = 0.12, saturation = 0.75 },
     rain      = { intensity = 0.72, sky = { 0.60, 0.64, 0.70 }, sky_mix = 0.55, fog = 0.60, saturation = 0.80 },
     storm     = { intensity = 0.45, sky = { 0.45, 0.48, 0.55 }, sky_mix = 0.80, fog = 0.35, saturation = 0.65 },
     snow      = { intensity = 0.80, sky = { 0.85, 0.88, 0.92 }, sky_mix = 0.50, fog = 0.50, saturation = 0.85 },
@@ -152,7 +156,7 @@ M.stats = {
     -- Lightning that found ground, and what it did there.
     strikes_grounded = 0, strikes_roofed = 0, strikes_unseen = 0, bolts_drawn = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
     -- Fire, presented.
-    fire_loops = 0, smoke = 0,
+    fire_loops = 0, smoke = 0, rainbows = 0,
 }
 
 -- ------------------------------------------------------------ one player's weather
@@ -298,6 +302,7 @@ function M.set_overlay(uuid, source, spec, ease)
         layers[source] = nil
         if next(layers) == nil then
             M.overlays[uuid] = nil
+    M.rainbow_sent[uuid] = nil
         end
     else
         if layers == nil then
@@ -338,6 +343,62 @@ local function sky_for(uuid, square, exposure, was)
         fog_distance = further(towards(1.0, row.fog), M.MEGA_SKY.fog),
         saturation = further(towards(1.0, row.saturation), M.MEGA_SKY.saturation),
     })
+end
+
+-- ------------------------------------------------------------ rainbows
+
+-- **After the rain, by day** (2026-09-30). One rain in RAINBOW_ODDS, rolled
+-- on the square and the tick the rain last fell, leaves a rainbow for
+-- RAINBOW_TICKS once it stops: up over RAINBOW_RISE_TICKS, then fading. The
+-- engine draws it (ask W30, `game.set_rainbow`), opposite the sun, and hides
+-- it while the sun is too high for one, so this side only says whether and
+-- how strongly. Under a roof or in a cave there is none. On an engine
+-- without `set_rainbow` the state is still worked out, for /weather clouds.
+local HAS_RAINBOW = type(game.set_rainbow) == "function"
+M.rainbow_sent = {}
+
+local function rainbow_of(square, exposure, tick)
+    if exposure <= 0 or square.last_rain == nil then
+        return 0
+    end
+    local k = controller.KINDS[square.kind]
+    if k and k.family == "rain" and square.intensity > 0 then
+        return 0
+    end
+    local since = tick - square.last_rain
+    if since <= 0 or since >= config.RAINBOW_TICKS then
+        return 0
+    end
+    local t = controller.day_fraction(tick)
+    if t == nil or t < config.RAINBOW_DAY_FROM or t > config.RAINBOW_DAY_TO then
+        return 0
+    end
+    local rng = game.rng_stream({ x = square.cx, y = square.last_rain % Y_WRAP, z = square.cz,
+        seed = game.world_seed }, "wx_rainbow")
+    if rng:below(math.max(1, config.RAINBOW_ODDS)) ~= 0 then
+        return 0
+    end
+    local rise = math.min(1, since / config.RAINBOW_RISE_TICKS)
+    local fade = 1 - since / config.RAINBOW_TICKS
+    -- Twentieths, so the client is told a handful of times, not every tick.
+    return math.floor(20 * rise * fade * exposure / 15 + 0.5) / 20
+end
+
+local function rainbow_for(uuid, square, exposure, tick)
+    local strength = rainbow_of(square, exposure, tick)
+    local was = M.rainbow_sent[uuid] or 0
+    if strength == was then
+        return
+    end
+    M.rainbow_sent[uuid] = strength > 0 and strength or nil
+    if HAS_RAINBOW then
+        if strength > 0 then
+            game.set_rainbow(uuid, { intensity = strength, ease_ticks = config.EASE_TICKS })
+        else
+            game.set_rainbow(uuid, nil)
+        end
+    end
+    M.stats.rainbows = M.stats.rainbows + 1
 end
 
 -- One ambience loop per player: the gain MOVES rather than restarting, so a
@@ -887,6 +948,7 @@ end
 M.CLOUDS = {
     clear     = { cover = 0.06, strato = 0.00, alto = 0.08, nimbus = 0.00, darkness = 0.0 },
     cloudy    = { cover = 0.55, strato = 0.40, alto = 0.30, nimbus = 0.00, darkness = 0.05 },
+    fog       = { cover = 0.05, strato = 0.20, alto = 0.00, nimbus = 0.00, darkness = 0.00 },
     rain      = { cover = 0.30, strato = 0.85, alto = 0.10, nimbus = 0.00, darkness = 0.45 },
     storm     = { cover = 0.40, strato = 0.70, alto = 0.00, nimbus = 0.60, darkness = 0.90 },
     snow      = { cover = 0.30, strato = 0.85, alto = 0.10, nimbus = 0.00, darkness = 0.25 },
@@ -1200,6 +1262,7 @@ controller.on_evaluated(function()
             end
             sky_for(uuid, square, exposure, was)
             loop_for(uuid, square, exposure, was)
+            rainbow_for(uuid, square, exposure, tick)
             if HAS_CLOUDS then
                 clouds_for(uuid, where, square, was)
             end
@@ -1222,6 +1285,7 @@ controller.on_evaluated(function()
                 game.stop_loop{ id = LOOP_ID, player = uuid, fade_ticks = config.EASE_TICKS }
             end
             send_sky(uuid, was, nil)
+            rainbow_for(uuid, { kind = "clear", intensity = 0 }, 0, tick)
             if HAS_CLOUDS and was.clouds then
                 was.clouds, was.base = nil, nil
                 game.set_clouds(uuid, nil)

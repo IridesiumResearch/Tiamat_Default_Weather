@@ -53,6 +53,30 @@ return {
     RAIN_AT = 0.32,
     STORM_AT = 0.46,
 
+    -- ---------------------------------------------------------- fog
+    -- Morning fog (2026-09-30): on a clear or cloudy morning over wet ground,
+    -- one morning in FOG_ODDS per FOG_REGION, rising from FOG_FROM, thickest
+    -- at FOG_PEAK and burnt off by FOG_TO (fractions of the day: 0.25 is
+    -- dawn, 0.5 noon). FOG_MOISTURE is on the climate's moisture, about
+    -- -0.5..0.5; the Spindle's wet/dry line is -0.05.
+    FOG_FROM = 0.19,
+    FOG_PEAK = 0.26,
+    FOG_TO = 0.36,
+    FOG_MOISTURE = 0.0,
+    FOG_ODDS = 3,
+    FOG_REGION = 1024,          -- blocks on a side of the lattice a foggy morning is rolled on
+
+    -- ---------------------------------------------------------- rainbows
+    -- After rain, by day, one rain in RAINBOW_ODDS leaves a rainbow over the
+    -- square for RAINBOW_TICKS, rising over RAINBOW_RISE_TICKS and fading
+    -- out. Drawn by the engine (ask W30), which decides where it stands from
+    -- the sun and hides it when the sun is too high for one.
+    RAINBOW_ODDS = 2,
+    RAINBOW_TICKS = 2400,
+    RAINBOW_RISE_TICKS = 200,
+    RAINBOW_DAY_FROM = 0.27,    -- the sun is up from here...
+    RAINBOW_DAY_TO = 0.73,      -- ...to here
+
     -- ---------------------------------------------------------- mega storms
     -- Everything a storm does, turned up to 11, about twice a year at any
     -- one place. One per MEGA_REGION in each half of an in-game year, at a

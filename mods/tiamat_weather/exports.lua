@@ -134,7 +134,7 @@ end
 -- How hard the wind blows over each kind, 0..1. A precipitating kind eases
 -- from the cloudy figure to its own with its intensity, as its sky does, and
 -- a mega storm pushes any of them towards 1.
-local WIND_STRENGTH = { clear = 0.2, cloudy = 0.35, rain = 0.5, storm = 0.85, snow = 0.4,
+local WIND_STRENGTH = { clear = 0.2, cloudy = 0.35, fog = 0.1, rain = 0.5, storm = 0.85, snow = 0.4,
     blizzard = 1.0, ash = 0.4, ash_storm = 0.85, dust = 0.9 }
 
 local function in_range(v, low, high)

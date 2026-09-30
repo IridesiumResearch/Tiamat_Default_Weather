@@ -30,6 +30,9 @@ M.KINDS = {
     clear     = { family = "dry",  precip = false, label = "" },
     cloudy    = { family = "dry",  precip = false, label = "Cloudy" },
     rain      = { family = "rain", precip = true,  label = "Rain", light = "Light rain" },
+    -- Fog is dry weather with an intensity: nothing falls, the ground is not
+    -- touched, and its intensity is how thick it is (2026-09-30).
+    fog       = { family = "dry",  precip = false, label = "Fog", light = "Mist" },
     storm     = { family = "rain", precip = true,  label = "Storm" },
     snow      = { family = "snow", precip = true,  label = "Snow", light = "Light snow" },
     blizzard  = { family = "snow", precip = true,  label = "Blizzard" },
@@ -213,6 +216,50 @@ function M.target(x, y, z, tick, ground)
     return kind, intensity, mega
 end
 
+-- Where the day stands at `tick`, 0 midnight to 0.5 noon, or nil on an
+-- engine (or a world) with no clock. Projected from the clock now at one
+-- DAY_TICKS a day, so a forecast an hour out sees the morning coming.
+function M.day_fraction(tick)
+    if type(game.time_of_day) ~= "function" then
+        return nil
+    end
+    local now = game.time_of_day()
+    if type(now) ~= "number" then
+        return nil
+    end
+    local t = (now + (tick - wx.now) / config.DAY_TICKS) % 1.0
+    return t
+end
+
+-- How thick the morning fog is at a place and tick, 0..1000. Wet ground on
+-- a morning the region rolled for fog; a straight rise to FOG_PEAK and a
+-- straight fall to FOG_TO. The roll is keyed on the day the morning belongs
+-- to, so a morning is foggy or not from its first minute to its last.
+local FOG_WRAP = 1 << 30
+local function fog_at(x, y, z, tick)
+    local t = M.day_fraction(tick)
+    if t == nil or t <= config.FOG_FROM or t >= config.FOG_TO then
+        return 0
+    end
+    if climate.moisture(x, y, z) < config.FOG_MOISTURE then
+        return 0
+    end
+    local day = math.floor((tick - t * config.DAY_TICKS) / config.DAY_TICKS + 0.5)
+    local region = config.FOG_REGION
+    local rng = game.rng_stream({ x = math.floor(x) // region, y = day % FOG_WRAP, z = math.floor(z) // region,
+        seed = game.world_seed }, "wx_fog")
+    if rng:below(math.max(1, config.FOG_ODDS)) ~= 0 then
+        return 0
+    end
+    local share
+    if t < config.FOG_PEAK then
+        share = (t - config.FOG_FROM) / (config.FOG_PEAK - config.FOG_FROM)
+    else
+        share = (config.FOG_TO - t) / (config.FOG_TO - config.FOG_PEAK)
+    end
+    return floor(1000 * share)
+end
+
 -- The weather without mega storms.
 function M.ordinary(x, y, z, tick, ground)
     local f = M.front(x, z, tick)
@@ -225,10 +272,13 @@ function M.ordinary(x, y, z, tick, ground)
         return f >= config.CLOUDY_AT and "cloudy" or "clear", 0
     end
     local wet = f + config.MOISTURE_WEIGHT * climate.moisture(x, y, z)
-    if wet < config.CLOUDY_AT then
-        return "clear", 0
-    elseif wet < config.RAIN_AT then
-        return "cloudy", 0
+    if wet < config.RAIN_AT then
+        -- A dry day may be a foggy morning; ash country never is.
+        local fog = ground ~= "ash" and fog_at(x, y, z, tick) or 0
+        if fog > 0 then
+            return "fog", fog
+        end
+        return wet < config.CLOUDY_AT and "clear" or "cloudy", 0
     end
     local storm = wet >= config.STORM_AT
     local intensity = 1000

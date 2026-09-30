@@ -83,7 +83,7 @@ Before committing, check the licence headers and the sign-offs (see
 | | |
 |---|---|
 | `/weather` | What it is doing where you stand, and why: kind, intensity, warmth, moisture, the front, the square |
-| `/weather set <kind> [minutes]` | Force a kind on your 256-block square: `clear`, `cloudy`, `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm`, `dust`, or `mega` for a mega storm |
+| `/weather set <kind> [minutes]` | Force a kind on your 256-block square: `clear`, `cloudy`, `fog`, `rain`, `storm`, `snow`, `blizzard`, `ash`, `ash_storm`, `dust`, or `mega` for a mega storm |
 | `/weather clear` | Remove the force |
 | `/weather forecast` | The next ten minutes at your square |
 | `/weather survey` | How often rain, snow and storms come where you stand, as shares of a year |

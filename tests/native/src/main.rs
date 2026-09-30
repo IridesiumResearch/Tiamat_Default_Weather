@@ -140,6 +140,8 @@ struct Sounds {
     stops: Mutex<Vec<String>>,
     /// Who each one-shot was addressed to, beside `plays`: `None` is everyone.
     play_to: Mutex<Vec<Option<[u8; 32]>>>,
+    /// The clock, 0 midnight to 0.5 noon; noon when unset.
+    tod: Mutex<Option<f32>>,
 }
 
 impl sound::Access for Sounds {
@@ -153,7 +155,7 @@ impl sound::Access for Sounds {
         1
     }
     fn time_of_day(&self) -> f32 {
-        0.5
+        self.tod.lock().unwrap().unwrap_or(0.5)
     }
     fn stop_loop(&self, request: &StopRequest) -> u32 {
         self.stops.lock().unwrap().push(request.id.clone());
@@ -721,6 +723,8 @@ fn main() {
     player_strike_check();
     cave_lightning_check();
     sibling_asks_check();
+    fog_check();
+    rainbow_check();
     cloud_lift_check();
     plain_check();
     hud_check();
@@ -2408,6 +2412,85 @@ fn sibling_asks_check() {
         "the damp step dried to a dirt step of the same shape: {dried:?}");
     assert!(!r.vm.faulted_mods().iter().any(|m| m == "tiamat_default_science" || m == "tiamat_weather"), "nothing faulted");
     println!("ok  sibling asks: wind `{calm}` then `{blowing}`; an overlay composed over the storm and alone underground; {count} fires near the wood; nothing of the storm off the overworld; a damp step dried as a step");
+}
+
+// Fog (2026-09-30): a dry kind with a thickness, on wet mornings. Forced,
+// it closes the view in with nothing falling; natural, it comes with the
+// morning and is gone by noon.
+fn fog_check() {
+    let x = 0.7 * 59000.0;
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
+    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
+    r.tick(41);
+    r.say(ALICE, "/weather set fog 10");
+    r.tick(40 * 25);
+    assert_eq!(r.hud(ALICE), "Fog");
+    let sky = r.sky_of(ALICE).expect("fog is a sky");
+    assert!(sky.fog_distance <= 0.15 && sky.sky_mix > 0.5, "the view closed in, pale: {sky:?}");
+    assert!(r.rain_of(ALICE).is_none(), "nothing falls in fog");
+    let loops_before = r.sounds.loops.lock().unwrap().len();
+    r.tick(41);
+    assert_eq!(r.sounds.loops.lock().unwrap().len(), loops_before, "fog is silent");
+    let forced = sky.fog_distance;
+
+    // Natural fog: every morning, everywhere wet enough, for the check.
+    let prelude = "wx_overrides = { FOG_ODDS = 1, FOG_MOISTURE = -1 }";
+    let mut r = Rig::with(true, Arc::new(Storage::default()), prelude);
+    *r.sounds.tod.lock().unwrap() = Some(0.26);
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
+    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
+    // Somewhere it is not raining this morning: the front is the front.
+    let mut morning = String::new();
+    for i in 0..12 {
+        let z = 100.0 + 5000.0 * f64::from(i);
+        r.stand(ALICE, x, z, "tiamat_default_world:dirt");
+        r.tick(40 * 25);
+        morning = r.reply(ALICE, "/weather");
+        if morning.starts_with("fog") {
+            break;
+        }
+    }
+    assert!(morning.starts_with("fog"), "a dry dawn somewhere is fog: {morning}");
+    *r.sounds.tod.lock().unwrap() = Some(0.5);
+    r.tick(40 * 25);
+    let noon = r.reply(ALICE, "/weather");
+    assert!(!noon.starts_with("fog"), "burnt off by noon: {noon}");
+    let survey = r.reply(ALICE, "/weather survey");
+    let fog_share = number_after(&survey, "fog ");
+    assert!((3.0..=20.0).contains(&fog_share), "every dry morning foggy is a few percent of the year: {survey}");
+    println!("ok  fog: forced to fog distance {forced:.2}, silent and dry; at dawn `{}`, gone by noon; {fog_share:.0}% of the year when every morning may be", &morning[..20.min(morning.len())]);
+}
+
+// Rainbows (2026-09-30): after rain, by day, in the open.
+fn rainbow_check() {
+    let prelude = "wx_overrides = { RAINBOW_ODDS = 1 }";
+    let x = 0.5 * 59000.0;
+    let mut r = Rig::with(true, Arc::new(Storage::default()), prelude);
+    let top = r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
+    r.join(ALICE, x, f64::from(top + 1), 100.0);
+    r.tick(41);
+    let strength = |r: &mut Rig| number_after(&r.reply(ALICE, "/weather clouds"), "rainbow ");
+    assert_eq!(strength(&mut r), 0.0, "no rainbow before any rain");
+    r.say(ALICE, "/weather set rain 2");
+    r.tick(40 * 25);
+    assert_eq!(strength(&mut r), 0.0, "none while it rains");
+    r.say(ALICE, "/weather set clear 10");
+    r.tick(40 * 30);
+    let after = strength(&mut r);
+    assert!(after > 0.0, "a rainbow once the rain has gone");
+    // Under a roof, none; and none at night.
+    r.world.roofs.lock().unwrap().push((x as i32, 100));
+    r.tick(41);
+    assert_eq!(strength(&mut r), 0.0, "no rainbow under a roof");
+    r.world.roofs.lock().unwrap().clear();
+    *r.sounds.tod.lock().unwrap() = Some(0.9);
+    r.tick(41);
+    assert_eq!(strength(&mut r), 0.0, "no rainbow at night");
+    *r.sounds.tod.lock().unwrap() = Some(0.5);
+    r.tick(20 * 150);
+    assert_eq!(strength(&mut r), 0.0, "and it fades out");
+    println!("ok  rainbows: {after:.2} after the rain; none while it rains, under a roof, at night, or two minutes on");
 }
 
 fn life_check() {

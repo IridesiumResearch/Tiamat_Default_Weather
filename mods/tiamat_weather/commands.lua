@@ -27,7 +27,7 @@ local controller = wx.controller
 local M = {}
 
 local SET_INTENSITY = { rain = 700, storm = 1000, snow = 700, blizzard = 1000, ash = 700,
-    ash_storm = 1000, dust = 900, cloudy = 0, clear = 0 }
+    ash_storm = 1000, dust = 900, cloudy = 0, clear = 0, fog = 1000 }
 local FORECAST_MINUTES = 10
 local FORECAST_STEP_TICKS = 1200     -- one line a minute
 local STRIKE_AHEAD = 6               -- blocks along the facing /weather strike aims when nothing is looked at
@@ -172,7 +172,7 @@ local function survey(player)
         return "you are not anywhere the weather can find"
     end
     local ground = climate.override(pos.x, pos.y, pos.z)
-    local counts = { clear = 0, cloudy = 0, light = 0, heavy = 0, storm = 0 }
+    local counts = { clear = 0, cloudy = 0, fog = 0, light = 0, heavy = 0, storm = 0 }
     local year = controller.YEAR_TICKS
     local offsets = { { 0, 0 }, { SURVEY_REACH, 0 }, { -SURVEY_REACH, 0 }, { 0, SURVEY_REACH }, { 0, -SURVEY_REACH } }
     local n = 0
@@ -184,7 +184,7 @@ local function survey(player)
             local k = controller.KINDS[kind]
             local bucket
             if not k.precip then
-                bucket = kind
+                bucket = counts[kind] and kind or "cloudy"
             elseif kind == "storm" or kind == "blizzard" or kind == "ash_storm" then
                 bucket = "storm"
             elseif intensity < 600 then
@@ -199,8 +199,8 @@ local function survey(player)
     local function pct(c)
         return math.floor(100 * c / n + 0.5)
     end
-    return string.format("over a year here: clear %d%%, cloudy %d%%, light %d%%, heavy %d%%, storm %d%% (falling %d%%)",
-        pct(counts.clear), pct(counts.cloudy), pct(counts.light), pct(counts.heavy), pct(counts.storm),
+    return string.format("over a year here: clear %d%%, cloudy %d%%, fog %d%%, light %d%%, heavy %d%%, storm %d%% (falling %d%%)",
+        pct(counts.clear), pct(counts.cloudy), pct(counts.fog), pct(counts.light), pct(counts.heavy), pct(counts.storm),
         pct(counts.light + counts.heavy + counts.storm))
 end
 
@@ -300,6 +300,7 @@ local function clouds(player)
             was.stratocumulus, was.altocumulus, was.cumulonimbus) or "no cloud genera on this engine",
         was.storms and string.format("%d of the %d squares around you are stormy", was.storms,
             config.CLOUD_MAP_SIZE * config.CLOUD_MAP_SIZE) or "no cover map on this engine")
+        .. string.format("; rainbow %.2f", wx.fx.rainbow_sent[player] or 0)
 end
 
 -- ------------------------------------------------------------ fire
