@@ -1586,7 +1586,7 @@ way the strong heaps overlap into banks, which is what a big cloud is.
 - **Fog and rainbows.** Fog is a dry kind with a thickness, on one wet
   morning in three per 1024-block region, dawn to mid-morning, about 2% of
   the year. Rainbows follow one rain in two by day for two minutes; weather
-  decides, the engine draws (W30, filed).
+  decides, the engine draws (W30, landed 143ed0f on 2026-09-30).
 - **No HUD.** The on-screen weather line is gone; `/weather` and the
   exports still name it.
 - **The siblings' asks** (Science Wx-S1 to S4, Magic Wx-M1), answered in
