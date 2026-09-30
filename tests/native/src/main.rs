@@ -192,6 +192,7 @@ struct Atmosphere {
     rain_calls: Mutex<Vec<([u8; 32], Option<Precipitation>)>>,
     flashes: Mutex<Vec<(u64, FlashRequest)>>,
     bolts: Mutex<Vec<(u64, tiamat_core::lightning::LightningRequest)>>,
+    rainbows: Mutex<HashMap<[u8; 32], Option<atmosphere::Rainbow>>>,
     clouds: Mutex<HashMap<[u8; 32], Option<Clouds>>>,
     cloud_calls: Mutex<usize>,
     maps: Mutex<HashMap<[u8; 32], Option<CloudMap>>>,
@@ -206,6 +207,10 @@ impl atmosphere::Access for Atmosphere {
     fn flash(&self, request: &FlashRequest) -> u32 {
         self.flashes.lock().unwrap().push((*self.now.lock().unwrap(), request.clone()));
         1
+    }
+    fn set_rainbow(&self, player: PlayerUuid, rainbow: Option<atmosphere::Rainbow>) -> bool {
+        self.rainbows.lock().unwrap().insert(*player.as_bytes(), rainbow);
+        true
     }
     fn lightning(&self, request: &tiamat_core::lightning::LightningRequest) -> u32 {
         self.bolts.lock().unwrap().push((*self.now.lock().unwrap(), request.clone()));
@@ -2454,6 +2459,9 @@ fn rainbow_check() {
     r.tick(40 * 30);
     let after = strength(&mut r);
     assert!(after > 0.0, "a rainbow once the rain has gone");
+    // And the engine is told (engine 143ed0f, ask W30), eased.
+    let sent = r.atmosphere.rainbows.lock().unwrap().get(&ALICE).cloned().flatten().expect("set_rainbow was called");
+    assert!((f64::from(sent.intensity) - after).abs() < 0.01 && sent.ease_ticks > 0, "{sent:?} against {after}");
     // Under a roof, none; and none at night.
     r.world.roofs.lock().unwrap().push((x as i32, 100));
     r.tick(41);
@@ -2465,6 +2473,7 @@ fn rainbow_check() {
     *r.sounds.tod.lock().unwrap() = Some(0.5);
     r.tick(20 * 150);
     assert_eq!(strength(&mut r), 0.0, "and it fades out");
+    assert!(r.atmosphere.rainbows.lock().unwrap().get(&ALICE).is_some_and(|b| b.is_none()), "and the engine is told it has gone");
     println!("ok  rainbows: {after:.2} after the rain; none while it rains, under a roof, at night, or two minutes on");
 }
 

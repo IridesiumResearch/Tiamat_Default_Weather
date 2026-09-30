@@ -69,7 +69,7 @@ return {
     -- ---------------------------------------------------------- rainbows
     -- After rain, by day, one rain in RAINBOW_ODDS leaves a rainbow over the
     -- square for RAINBOW_TICKS, rising over RAINBOW_RISE_TICKS and fading
-    -- out. Drawn by the engine (ask W30), which decides where it stands from
+    -- out. Drawn by the engine (engine 143ed0f, ask W30), which decides where it stands from
     -- the sun and hides it when the sun is too high for one.
     RAINBOW_ODDS = 2,
     RAINBOW_TICKS = 2400,

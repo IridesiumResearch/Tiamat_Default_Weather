@@ -350,7 +350,8 @@ end
 -- **After the rain, by day** (2026-09-30). One rain in RAINBOW_ODDS, rolled
 -- on the square and the tick the rain last fell, leaves a rainbow for
 -- RAINBOW_TICKS once it stops: up over RAINBOW_RISE_TICKS, then fading. The
--- engine draws it (ask W30, `game.set_rainbow`), opposite the sun, and hides
+-- engine draws it (`game.set_rainbow`, engine 143ed0f, ask W30), opposite
+-- the sun, and hides
 -- it while the sun is too high for one, so this side only says whether and
 -- how strongly. Under a roof or in a cave there is none. On an engine
 -- without `set_rainbow` the state is still worked out, for /weather clouds.
