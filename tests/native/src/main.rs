@@ -24,13 +24,13 @@ use tiamat_core::{
     atmosphere::{self, CloudMap, Clouds, FlashRequest, Precipitation, SkyModifier},
     ent::{self, Entity, EntityId, Owner, Transform},
     fluid::{self, Fluid, FluidId},
-    hud::{self, State, Value, Values},
+    hud::{self, Values},
     identity::PlayerUuid,
     light::{Light, LightSource},
     modload::WorldOptionValue,
     particle::{self, EmitRequest},
     script::{
-        ChatEvent, EngineVm, FluidFlowEvent, HudLimits, HudVm, JoinEvent, LeaveEvent, RandomTickEvent, ScriptVm, VmLimits,
+        ChatEvent, EngineVm, FluidFlowEvent, JoinEvent, LeaveEvent, RandomTickEvent, ScriptVm, VmLimits,
         WorldEdit,
     },
     sight::{self, Reading, Sighting, Skip, Surface},
@@ -623,12 +623,6 @@ impl Rig {
     fn reply(&mut self, who: [u8; 32], text: &str) -> String {
         self.say(who, text).unwrap_or_else(|| panic!("`{text}` got no reply"))
     }
-    fn hud(&self, who: [u8; 32]) -> String {
-        match self.huds.0.lock().unwrap().get(&who).and_then(|v| v.get("weather")) {
-            Some(Value::Text(t)) => t.clone(),
-            _ => String::new(),
-        }
-    }
     fn random_tick(&mut self, x: i32, y: i32, z: i32) {
         let (material, _) = self.world.at(x, y, z);
         self.vm.random_tick(&RandomTickEvent { pos: BlockPos::new(x, y, z), material });
@@ -727,7 +721,6 @@ fn main() {
     rainbow_check();
     cloud_lift_check();
     plain_check();
-    hud_check();
     println!("all weather checks passed");
 }
 
@@ -822,7 +815,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(target >= 225, "the cell overhead is sent at the storm's own darkness at once: {target}");
     assert!(r.clouds_of(ALICE).unwrap().ease_ticks >= 400, "and the client is told to take its time");
     r.tick(40 * 24);
-    assert_eq!(r.hud(ALICE), "Storm");
+    assert!(r.huds.0.lock().unwrap().is_empty(), "weather draws nothing on the screen (2026-09-30)");
     let reply = r.reply(ALICE, "/weather");
     assert!(reply.starts_with("storm at 1000"), "{reply}");
     println!("ok  forced storm eased in: `{reply}`");
@@ -1017,7 +1010,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(r.reply(ALICE, "/weather clear").contains("back to its own weather"));
     r.say(ALICE, "/weather set clear 10");
     r.tick(40 * 25);
-    assert_eq!(r.hud(ALICE), "");
+    assert!(r.reply(ALICE, "/weather").starts_with("clear"), "cleared");
     assert!(r.rain_of(ALICE).is_none(), "the rain is cleared");
     assert!(r.sky_of(ALICE).is_none(), "and the plain sky is back");
     assert!(r.sounds.stops.lock().unwrap().len() > stops, "the loop stopped");
@@ -1477,7 +1470,6 @@ fn mega_check() {
     let set = r.reply(ALICE, "/weather set mega 10");
     assert!(set.starts_with("mega over square"), "{set}");
     r.tick(40 * 25);
-    assert_eq!(r.hud(ALICE), "Mega storm");
     let reply = r.reply(ALICE, "/weather");
     assert!(reply.contains("mega storm 1000"), "{reply}");
     let rain = r.rain_of(ALICE).expect("mega rain");
@@ -1503,7 +1495,8 @@ fn mega_check() {
     r.tick(41);
     r.say(ALICE, "/weather set mega 10");
     r.tick(40 * 25);
-    assert_eq!(r.hud(ALICE), "Mega blizzard");
+    let cold = r.reply(ALICE, "/weather");
+    assert!(cold.starts_with("blizzard"), "{cold}");
     println!("ok  a mega storm in the cold is a mega blizzard");
     r.say(ALICE, "/weather clear");
 
@@ -2391,7 +2384,6 @@ fn sibling_asks_check() {
     assert!(r.rain_of(ALICE).is_none(), "no rain on the moon");
     assert!(r.sky_of(ALICE).is_none(), "no storm sky on the moon: {:?}", r.sky_of(ALICE));
     assert!(r.clouds_of(ALICE).is_none(), "no clouds on the moon");
-    assert_eq!(r.hud(ALICE), "", "no weather label on the moon");
     assert_eq!(r.reply(ALICE, "/here"), "nil nil", "and the exports say nothing about her");
     r.world.away.lock().unwrap().remove(&ALICE);
     r.tick(41);
@@ -2425,7 +2417,7 @@ fn fog_check() {
     r.tick(41);
     r.say(ALICE, "/weather set fog 10");
     r.tick(40 * 25);
-    assert_eq!(r.hud(ALICE), "Fog");
+    assert!(r.reply(ALICE, "/weather").starts_with("fog"), "forced fog");
     let sky = r.sky_of(ALICE).expect("fog is a sky");
     assert!(sky.fog_distance <= 0.15 && sky.sky_mix > 0.5, "the view closed in, pale: {sky:?}");
     assert!(r.rain_of(ALICE).is_none(), "nothing falls in fog");
@@ -2541,30 +2533,8 @@ fn plain_check() {
     assert!(reply.contains("climate plain"), "{reply}");
     r.say(ALICE, "/weather set rain 5");
     r.tick(40 * 20);
-    assert!(r.hud(ALICE).contains("Rain"), "hud {:?}", r.hud(ALICE));
+    assert!(r.reply(ALICE, "/weather").starts_with("rain"), "rain on a plain world");
     assert!(r.reply(ALICE, "/weather drift").contains("mirrors nothing"));
     println!("ok  plain world: `{reply}`");
 }
 
-fn hud_check() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../mods").join(MOD);
-    let source = std::fs::read_to_string(dir.join("hud.lua")).unwrap();
-    let cases: Vec<(&str, Values, usize)> = vec![
-        ("nothing", Values::new(), 0),
-        ("rain under the Spindle", Values::from([
-            ("weather".into(), Value::Text("Light rain".into())), ("row".into(), Value::Number(78.0)),
-        ]), 2),
-        ("no row", Values::from([("weather".into(), Value::Text("Snow".into()))]), 2),
-    ];
-    for (name, values, expected) in cases {
-        let mut hud = HudVm::new(HudLimits::default()).unwrap();
-        hud.load(MOD, &source).expect("hud.lua loads");
-        let mut state = State::default();
-        state.values.insert(MOD.into(), values);
-        let faults = hud.draw(&state);
-        assert!(faults.is_empty(), "hud faults on `{name}`: {faults:?}");
-        let commands = hud.with_frame(|f| f.commands().len()).unwrap();
-        assert_eq!(commands, expected, "hud `{name}`");
-        println!("ok  hud `{name}`: {commands} draw commands");
-    }
-}

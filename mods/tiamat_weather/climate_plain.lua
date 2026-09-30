@@ -8,7 +8,7 @@
 
 local config = wx.config
 
-local M = { name = "plain", hud_row = config.HUD_ROW_PLAIN }
+local M = { name = "plain" }
 
 -- This mod's own stream. **Never a Spindle name**: a field silently equal to
 -- somebody else's is the hardest worldgen bug to see.

@@ -11,7 +11,7 @@
 --
 -- Weather is a FUNCTION the server evaluates at a handful of points
 -- (controller.lua); everything a player sees or hears is presentation sent
--- from those points (fx.lua, hud.lua), and the only world state it writes is
+-- from those points (fx.lua), and the only world state it writes is
 -- the ground (ground.lua) and fire (fire.lua), through a paced queue
 -- (queue.lua).
 
@@ -46,8 +46,6 @@ wx.fire = load("fire")           -- blazes: lit by lightning, lava, a command or
 wx.fx = load("fx")
 wx.commands = load("commands")
 load("exports")                  -- what other mods may read: game.exports("tiamat_weather")
-
-game.register_hud_script("hud.lua")
 
 game.log(string.format("tiamat_weather ready: climate %s, damp ground %s, puddles %s, fires %s",
     wx.climate.name, wx.config.damp_ground and "on" or "off", wx.config.puddles and "on" or "off",

@@ -453,7 +453,6 @@ end
 M.squares = {}
 -- uuid -> { x, y, z, key }, from the last evaluation
 M.where = {}
-local hud_sent = {}          -- uuid -> the label last sent
 
 local evaluated = {}
 -- Runs `fn()` after every evaluation pass, when M.squares and M.where are fresh.
@@ -539,30 +538,12 @@ local function evaluate()
         end
     end
 
-    for _, uuid in ipairs(order) do
-        local where = M.where[uuid]
-        local label = ""
-        if where then
-            local square = M.squares[where.key]
-            label = M.label(square.kind, square.intensity, square.mega)
-        end
-        if hud_sent[uuid] ~= label then
-            hud_sent[uuid] = label
-            if label == "" then
-                game.set_hud(uuid, {})
-            else
-                game.set_hud(uuid, { weather = label, row = climate.hud_row })
-            end
-        end
-    end
-
     for _, fn in ipairs(evaluated) do
         fn()
     end
 end
 
 wx.on_leave(function(uuid)
-    hud_sent[uuid] = nil
     M.where[uuid] = nil
 end)
 

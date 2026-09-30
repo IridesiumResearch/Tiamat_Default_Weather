@@ -228,7 +228,7 @@ its own ask answered.
 
 - **Wx-S3, domains.** Weather is the overworld's. A player in any other
   domain (as `game.look_direction` names it) is in no square: no rain, sky,
-  loop, clouds, HUD label, sampled ground or aimed bolt, and what Weather
+  loop, clouds, sampled ground or aimed bolt, and what Weather
   had sent is taken back when they leave. `weather_for` and `falling_on`
   answer nil for them. Overlays stay. On an engine without
   `look_direction`, everyone is in the overworld, as before.

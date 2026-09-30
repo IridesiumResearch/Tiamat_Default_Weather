@@ -12,7 +12,6 @@
 --   damp                  dry block id (string) -> damp block id (string)
 --   canopy                numeric material -> true: leaves, under which it is still outdoors
 --   covered               numeric material -> true: ground snow never settles on
---   hud_row               where hud.lua draws the weather line
 --   fuel                  numeric material -> { catch, burn, residue, kind }: what burns (fire.lua)
 --   scorch                numeric material -> block id: turf a plant fire blackens
 --   hot_blocks            numeric material -> true: solids that light what stands beside them

@@ -164,8 +164,6 @@ return {
     -- twenty-four, and "lightning is too rare".
     THUNDER_ODDS = 4,
     MEGA_THUNDER_ODDS = 2,      -- and in a mega storm at full strength
-    HUD_ROW_SPINDLE = 78,       -- below the Spindle's biome name (y = 44, size 26)
-    HUD_ROW_PLAIN = 44,
 
     -- ---------------------------------------------------------- the ground
 
