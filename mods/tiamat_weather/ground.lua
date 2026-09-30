@@ -231,6 +231,25 @@ local function column(x, z, feet_y, square, tick, rng)
 
     -- Everything else must be a whole block of one material to hold anything.
     if surface.occupancy ~= FULL then
+        -- **A damp block that is not whole still dries, keeping its shape**
+        -- (World's warning on engine ask 43, 2026-09-26). The engine's soak
+        -- swap keeps a partial block's shape, so once the Spindle lets its
+        -- soils soak into this mod's damp ones, every smoothed slope a
+        -- puddle runs down is damp partial blocks; skipping them left those
+        -- damp for good. Only a block of ONE material: a mixed block's other
+        -- cells would be lost to the masked write.
+        if config.damp_ground and not raining and tick - square.last_rain >= config.DRY_AFTER_TICKS then
+            resolve_damp()
+            local dry = dry_of[surface.material]
+            if dry then
+                local b = game.get_block(here)
+                if b and b.cells == nil and b.material == surface.material then
+                    queue.push(here, dry, b.occupancy)
+                    M.stats.dried = M.stats.dried + 1
+                    return
+                end
+            end
+        end
         M.stats.not_support = M.stats.not_support + 1
         return
     end
@@ -429,7 +448,9 @@ for _, damp in ipairs(blocks.damp_ids) do
         resolve_damp()
         local here = { x = event.x, y = event.y, z = event.z }
         local b = game.get_block(here)
-        if b == nil or b.cells ~= nil or b.occupancy ~= FULL or dry_of[b.material] == nil then
+        -- A partial block of one material dries too, keeping its shape
+        -- (see the sampler); a mixed one is left alone.
+        if b == nil or b.cells ~= nil or b.occupancy == 0 or dry_of[b.material] == nil then
             return
         end
         local kind, intensity = controller.weather(event.x, event.y, event.z, wx.now, nil)
@@ -437,7 +458,7 @@ for _, damp in ipairs(blocks.damp_ids) do
             return
         end
         queue.begin()
-        queue.push(here, dry_of[b.material])
+        queue.push(here, dry_of[b.material], b.occupancy ~= FULL and b.occupancy or nil)
         if queue.commit() then
             M.stats.tick_dries = M.stats.tick_dries + 1
         end

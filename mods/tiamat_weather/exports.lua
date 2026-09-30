@@ -28,10 +28,34 @@
 --                               all apply, but no odds are rolled
 --   extinguish(x, y, z)         boolean: put that one block out
 --   fires()                     blocks alight, blazes alight
---   on_lightning(fn)            boolean: `fn(x, y, z)` after every bolt, grounded or
---                               not, at the block the flash was centred on: the
---                               ground + 1, or STRIKE_ABOVE over the player when no
---                               column under the bolt answered (a point in the air)
+--   on_lightning(fn)            boolean: `fn(x, y, z)` after every bolt, at the block
+--                               over the ground it struck (since 2026-09-28 a bolt
+--                               only lands on ground under open sky; there is no
+--                               bolt in the air any more)
+--   fires_near(x, y, z, r)      list of { x, y, z }: the blocks alight within r
+--                               (a sphere, r up to 64), by x, y, z (Science Wx-S4)
+--
+-- Sibling asks answered 2026-09-30 (the version stays 1: nothing changed shape):
+--
+--   wind(x, z)                  x, z, strength: the wind there, a direction of
+--                               length about 1 (|x| + |z| on the Spindle) and a
+--                               strength 0..1 from the weather over it — 0.2 on a
+--                               clear day to 1 in a blizzard or a mega storm
+--                               (Science Wx-S1: windmills and kites)
+--   add_overlay(player, source, spec | nil)
+--                               boolean: a sky modifier of your own, laid over the
+--                               weather's rather than fighting it for the one
+--                               `set_sky_modifier` a player has (Magic Wx-M1,
+--                               Science Wx-S2). `source` names yours (a string,
+--                               up to 64 bytes; one overlay per source a player);
+--                               spec { intensity?, sky?, sky_mix?, saturation?,
+--                               ease_ticks? }, the engine's ranges; nil removes it.
+--                               Sent at once. Stays until removed or the player
+--                               leaves, underground and off the overworld too.
+--
+-- And weather stands aside off the overworld (Science Wx-S3): a player in any
+-- other domain gets no rain, sky, loop, clouds or HUD label from it, and
+-- `weather_for` / `falling_on` answer nil for them.
 --
 -- Coordinates are world blocks and are floored, so an entity's position may
 -- be passed as it is.
@@ -101,10 +125,50 @@ local function weather_at(x, y, z)
 end
 
 local function position_of(player)
-    if type(player) ~= "string" then
+    if type(player) ~= "string" or not controller.in_overworld(player) then
         return nil
     end
     return controller.position(player)
+end
+
+-- How hard the wind blows over each kind, 0..1. A precipitating kind eases
+-- from the cloudy figure to its own with its intensity, as its sky does, and
+-- a mega storm pushes any of them towards 1.
+local WIND_STRENGTH = { clear = 0.2, cloudy = 0.35, rain = 0.5, storm = 0.85, snow = 0.4,
+    blizzard = 1.0, ash = 0.4, ash_storm = 0.85, dust = 0.9 }
+
+local function in_range(v, low, high)
+    return is_number(v) and v >= low and v <= high
+end
+
+local MAX_OVERLAYS = 16
+local function overlay_of(spec)
+    if type(spec) ~= "table" then
+        return nil
+    end
+    local o = { intensity = spec.intensity or 1.0, saturation = spec.saturation or 1.0,
+        sky_mix = spec.sky_mix or 0.0, sky = { 0.0, 0.0, 0.0 } }
+    if not (in_range(o.intensity, 0, 2) and in_range(o.saturation, 0, 4) and in_range(o.sky_mix, 0, 1)) then
+        return nil
+    end
+    local sky = spec.sky
+    if sky ~= nil then
+        if type(sky) ~= "table" then
+            return nil
+        end
+        local r, g, b = sky[1] or sky.r, sky[2] or sky.g, sky[3] or sky.b
+        if not (in_range(r, 0, 2) and in_range(g, 0, 2) and in_range(b, 0, 2)) then
+            return nil
+        end
+        o.sky = { r, g, b }
+    elseif o.sky_mix > 0 then
+        return nil
+    end
+    local ease = spec.ease_ticks
+    if ease ~= nil and not (in_range(ease, 0, 2400)) then
+        return nil
+    end
+    return o, ease and math.floor(ease) or nil
 end
 
 local kinds = {}
@@ -195,6 +259,55 @@ game.export{
 
     fires = guarded("fires", function()
         return wx.fire.count(), #wx.fire.blazes()
+    end),
+
+    fires_near = guarded("fires_near", function(x, y, z, r)
+        if not coords(x, y, z) or not in_range(r, 0, 64) then
+            return nil
+        end
+        return wx.fire.near(block_of(x, y, z), r)
+    end),
+
+    wind = guarded("wind", function(x, z)
+        if not (is_number(x) and is_number(z)) or game.world_seed == nil then
+            return nil
+        end
+        local w = climate.wind(x, z, wx.now)
+        local y = climate.surface_y(x, z) + 1
+        local kind, intensity, mega = weather_at(x, y, z)
+        local strength = WIND_STRENGTH.clear
+        if kind ~= nil then
+            local own = WIND_STRENGTH[kind] or WIND_STRENGTH.cloudy
+            if controller.KINDS[kind].precip then
+                strength = WIND_STRENGTH.cloudy + (own - WIND_STRENGTH.cloudy) * intensity / 1000
+            else
+                strength = own
+            end
+            strength = strength + (1 - strength) * (mega or 0) / 1000
+        end
+        return w.x, w.z, strength
+    end),
+
+    add_overlay = guarded("add_overlay", function(player, source, spec)
+        if type(player) ~= "string" or type(source) ~= "string" or #source == 0 or #source > 64 then
+            return false
+        end
+        if spec == nil then
+            return wx.fx.set_overlay(player, source, nil)
+        end
+        local o, ease = overlay_of(spec)
+        if o == nil then
+            return false
+        end
+        local layers = wx.fx.overlays[player]
+        if layers and layers[source] == nil then
+            local n = 0
+            for _ in pairs(layers) do n = n + 1 end
+            if n >= MAX_OVERLAYS then
+                return false
+            end
+        end
+        return wx.fx.set_overlay(player, source, o, ease)
     end),
 
     -- The callback runs in the CALLER's sandbox when fx.lua calls it, so a

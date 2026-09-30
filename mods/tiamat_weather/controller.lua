@@ -373,6 +373,29 @@ function M.position(uuid)
     return me and me.pos or nil
 end
 
+-- **Weather is the overworld's** (Science's Wx-S3, 2026-09-30). A star body,
+-- a woven world or a ship's hold is another domain, and this mod knows
+-- nothing of its sky: evaluated by x and z alone, a player there was given
+-- the overworld's weather at the same coordinates. `look_direction` is the
+-- one call that names a player's domain; an engine without it, or a player
+-- it cannot answer for, is taken to be in the overworld as before.
+local OVERWORLD = "overworld"
+
+function M.domain_of(uuid)
+    if type(game.look_direction) ~= "function" then
+        return OVERWORLD
+    end
+    local ok, look = pcall(game.look_direction, uuid)
+    if ok and type(look) == "table" and type(look.domain) == "string" then
+        return look.domain
+    end
+    return OVERWORLD
+end
+
+function M.in_overworld(uuid)
+    return M.domain_of(uuid) == OVERWORLD
+end
+
 -- ------------------------------------------------------------ evaluation
 
 -- key -> { cx, cz, kind, intensity, mega, target, members, rep, ground,
@@ -418,7 +441,9 @@ local function evaluate()
         square.members = {}
     end
     for _, uuid in ipairs(order) do
-        local pos = M.position(uuid)
+        -- Off the overworld a player is in no square: no weather, no HUD
+        -- label, no ground sampled round them, no bolt aimed at them.
+        local pos = M.in_overworld(uuid) and M.position(uuid) or nil
         if pos then
             local cx, cz = M.square_of(pos.x, pos.z)
             local key = key_of(cx, cz)

@@ -834,6 +834,28 @@ function M.burning_at(pos)
     return fires[key_of(p.x, p.y, p.z)] ~= nil
 end
 
+-- The blocks alight within `r` of `pos` (a sphere, in blocks), as fresh
+-- `{ x, y, z }` tables ordered by x, then y, then z. At most
+-- FIRE_MAX_BURNING of them exist, so this is a short walk. For Science's
+-- lightning rod (Wx-S4), which puts out the fires round it.
+function M.near(pos, r)
+    local p = block_pos(pos)
+    local out = {}
+    local rr = r * r
+    for _, fire in pairs(fires) do
+        local dx, dy, dz = fire.x - p.x, fire.y - p.y, fire.z - p.z
+        if dx * dx + dy * dy + dz * dz <= rr then
+            out[#out + 1] = { x = fire.x, y = fire.y, z = fire.z }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.x ~= b.x then return a.x < b.x end
+        if a.y ~= b.y then return a.y < b.y end
+        return a.z < b.z
+    end)
+    return out
+end
+
 -- Blocks alight: every fire this mod is still watching, the dying included,
 -- since their blocks are fire in the world until the residue lands.
 function M.count()

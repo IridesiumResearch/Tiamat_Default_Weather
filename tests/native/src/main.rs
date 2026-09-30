@@ -245,6 +245,9 @@ const FULL: u32 = 0x7FF_FFFF;
 
 #[derive(Default)]
 struct World {
+    /// Players in a domain other than the overworld, as `look_direction`
+    /// names it; everyone else is in the overworld.
+    away: Mutex<HashMap<[u8; 32], String>>,
     blocks: Mutex<HashMap<(i32, i32, i32), (MaterialId, u32)>>,
     /// Solid ground at and below this height, of one material.
     floor: Mutex<(i32, MaterialId)>,
@@ -343,6 +346,10 @@ impl World {
 impl sight::Access for World {
     fn line_of_sight(&self, _: &str, _: [f64; 3], _: [f64; 3]) -> Sighting {
         Sighting::Clear
+    }
+    fn gaze(&self, uuid: [u8; 32]) -> Option<sight::Gaze> {
+        let domain = self.away.lock().unwrap().get(&uuid).cloned().unwrap_or_else(|| "overworld".to_owned());
+        Some(sight::Gaze { domain, direction: [0.0, 0.0, 1.0] })
     }
     fn block_at(&self, _: &str, pos: BlockPos) -> Reading {
         let away = self.unloaded.lock().unwrap();
@@ -713,6 +720,7 @@ fn main() {
     life_check();
     player_strike_check();
     cave_lightning_check();
+    sibling_asks_check();
     cloud_lift_check();
     plain_check();
     hud_check();
@@ -2286,6 +2294,120 @@ fn cave_lightning_check() {
     assert!(bolt.from[1] > bolt.to[1] + 60.0, "a bolt falls from the cloud floor to the ground: {bolt:?} at {b}");
     assert_cave_sky(&r, BOB, "under a roof in a storm");
     println!("ok  lightning under a roof: {} flashes, {} bolts, {} claps, all to the player in the open; none to the one under the roof, who has no sky modifier", flashes.len(), bolts.len(), claps.len());
+}
+
+// What the sibling mods asked of weather (2026-09-30): wind with a strength
+// (Science Wx-S1), a sky overlay laid over the weather's (Magic Wx-M1,
+// Science Wx-S2), standing aside off the overworld (Wx-S3), and the fires
+// near a point (Wx-S4). Read by a stand-in sibling, as a sibling would.
+fn sibling_asks_check() {
+    let probe = r#"
+        local wx = game.exports("tiamat_weather")
+        game.register_on_chat(function(event)
+            local t = event.text
+            if t == "/wind" then
+                local x, z, s = wx.wind(29500, 300)
+                return string.format("%.2f %.2f %.2f", x, z, s)
+            elseif t == "/overlay" then
+                return tostring(wx.add_overlay(event.player, "science:core", { intensity = 0.5, sky = { 0.1, 0.0, 0.2 }, sky_mix = 0.5 }))
+            elseif t == "/overlay bad" then
+                return tostring(wx.add_overlay(event.player, "science:core", { intensity = 9 })) .. " "
+                    .. tostring(wx.add_overlay(event.player, "", {})) .. " "
+                    .. tostring(wx.add_overlay(event.player, "x", { sky_mix = 0.5 }))
+            elseif t == "/overlay off" then
+                return tostring(wx.add_overlay(event.player, "science:core", nil))
+            elseif t:sub(1, 5) == "/near" then
+                local x, y, z = t:match("^/near (%-?%d+) (%-?%d+) (%-?%d+)$")
+                local list = wx.fires_near(tonumber(x), tonumber(y), tonumber(z), 16)
+                local sorted = true
+                for i = 2, #list do
+                    local a, b = list[i - 1], list[i]
+                    if a.x > b.x or (a.x == b.x and (a.y > b.y or (a.y == b.y and a.z > b.z))) then sorted = false end
+                end
+                return #list .. " " .. tostring(sorted) .. " " .. tostring(wx.fires_near(0, 0, 0, 1000))
+            elseif t == "/here" then
+                return tostring(wx.weather_for(event.player)) .. " " .. tostring(wx.falling_on(event.player))
+            end
+        end)
+    "#;
+    let spindle = spindle_exporting(-0.35, 0.6);
+    let mut r = Rig::custom(Some(&spindle), Arc::new(Storage::default()), "",
+        &[("tiamat_default_science", probe, &["tiamat_weather"])]);
+    let top = clear_day(&mut r, FIRE_X, FIRE_Z, DIRT);
+
+    // Wx-S1: a direction and a strength, which a storm raises.
+    let calm = r.reply(ALICE, "/wind");
+    r.say(ALICE, "/weather set storm 30");
+    r.tick(40 * 25);
+    let blowing = r.reply(ALICE, "/wind");
+    let strength = |w: &str| w.split(' ').nth(2).unwrap().parse::<f64>().unwrap();
+    assert!(strength(&blowing) > strength(&calm) && strength(&blowing) <= 1.0, "a storm blows harder: {calm} then {blowing}");
+
+    // Wx-M1 / Wx-S2: the overlay is laid over the storm's sky, not over it.
+    let storm_sky = r.sky_of(ALICE).expect("the storm's sky");
+    assert_eq!(r.reply(ALICE, "/overlay"), "true");
+    let both = r.sky_of(ALICE).expect("storm and overlay");
+    assert!((both.intensity - storm_sky.intensity * 0.5).abs() < 0.01, "intensities multiply: {storm_sky:?} then {both:?}");
+    assert!((both.sky_mix - (1.0 - (1.0 - storm_sky.sky_mix) * 0.5)).abs() < 0.01, "the mixes compose: {both:?}");
+    assert_eq!(both.fog_distance, storm_sky.fog_distance, "the fog is the weather's");
+    r.tick(41);
+    assert_eq!(r.sky_of(ALICE), Some(both.clone()), "the next evaluation keeps the overlay");
+    assert_eq!(r.reply(ALICE, "/overlay bad"), "false false false", "bad overlays are refused");
+    // Underground the weather's part goes and the overlay stays.
+    let (ax, az) = (FIRE_X as i32, FIRE_Z as i32);
+    r.world.roofs.lock().unwrap().push((ax, az));
+    r.tick(41);
+    let alone = r.sky_of(ALICE).expect("the overlay, underground");
+    assert!((alone.intensity - 0.5).abs() < 0.01 && (alone.sky_mix - 0.5).abs() < 0.01 && alone.fog_distance == 1.0,
+        "only the overlay underground: {alone:?}");
+    r.world.roofs.lock().unwrap().retain(|c| *c != (ax, az));
+    r.tick(41);
+    assert_eq!(r.reply(ALICE, "/overlay off"), "true");
+    assert_eq!(r.sky_of(ALICE), Some(storm_sky.clone()), "removed, the storm's own sky again");
+
+    // Wx-S4: the fires near a point, ordered, and a bad radius answers nil.
+    let crown = plant_wood(&r, ax + 6, top, az + 6);
+    let (lx, ly, lz) = crown[0];
+    r.say(ALICE, "/weather clear");
+    r.say(ALICE, "/weather set clear 30");
+    r.tick(40 * 25);
+    let lit = r.reply(ALICE, &format!("/weather fire at {lx} {ly} {lz}"));
+    assert!(lit.starts_with("lit at"), "{lit}");
+    r.tick(200);
+    let near = r.reply(ALICE, &format!("/near {lx} {ly} {lz}"));
+    let count: usize = near.split(' ').next().unwrap().parse().unwrap();
+    assert!(count > 0 && near.ends_with(" true nil"), "fires near the wood, sorted; r 1000 refused: {near}");
+
+    // Wx-S3: off the overworld nothing of the weather follows her.
+    r.say(ALICE, "/weather set storm 30");
+    r.tick(40 * 25);
+    assert!(r.rain_of(ALICE).is_some() && r.clouds_of(ALICE).is_some(), "in the storm first");
+    r.world.away.lock().unwrap().insert(ALICE, "tiamat_space:moon".to_owned());
+    r.tick(41);
+    assert!(r.rain_of(ALICE).is_none(), "no rain on the moon");
+    assert!(r.sky_of(ALICE).is_none(), "no storm sky on the moon: {:?}", r.sky_of(ALICE));
+    assert!(r.clouds_of(ALICE).is_none(), "no clouds on the moon");
+    assert_eq!(r.hud(ALICE), "", "no weather label on the moon");
+    assert_eq!(r.reply(ALICE, "/here"), "nil nil", "and the exports say nothing about her");
+    r.world.away.lock().unwrap().remove(&ALICE);
+    r.tick(41);
+    assert!(r.rain_of(ALICE).is_some() && r.clouds_of(ALICE).is_some(), "back in the overworld, back in the storm");
+    // World's warning on ask 43: a damp block that is not whole dries too,
+    // keeping its shape, on its random tick.
+    r.say(ALICE, "/weather set clear 30");
+    r.tick(40 * 25);
+    let damp = r.material("tiamat_weather:damp_dirt");
+    let step = 0x1C0E07; // one layer of cells: a smoothed slope's step
+    let (sx, sz) = (ax - 9, az - 9);
+    r.world.put(sx, top, sz, damp, step);
+    let from = r.now;
+    r.random_tick(sx, top, sz);
+    r.tick(20);
+    let dried = r.edits_since(from);
+    assert!(dried.iter().any(|(_, p, b, o)| (p.x, p.y, p.z) == (sx, top, sz) && b == DIRT && *o == step),
+        "the damp step dried to a dirt step of the same shape: {dried:?}");
+    assert!(!r.vm.faulted_mods().iter().any(|m| m == "tiamat_default_science" || m == "tiamat_weather"), "nothing faulted");
+    println!("ok  sibling asks: wind `{calm}` then `{blowing}`; an overlay composed over the storm and alone underground; {count} fires near the wood; nothing of the storm off the overworld; a damp step dried as a step");
 }
 
 fn life_check() {

@@ -223,14 +223,103 @@ end
 -- modifier and a flash lean only the sky-lit share. Exposure 0 is simply no
 -- modifier. (For a day, 2026-09-28, this laid a cave colour over the whole
 -- sky instead, which fogged the daylight out of a tunnel's mouth too.)
+--
+-- **Other mods' overlays** (Magic's Wx-M1 and Science's Wx-S2, 2026-09-30).
+-- `set_sky_modifier` is ONE modifier a player, and the last writer wins, so
+-- a night-sight potion or the Core's darkening written by another mod was
+-- overwritten by the next evaluation here. So the modifier is composed:
+-- the weather's own part (nil when there is none) with every overlay laid
+-- over it, by `add_overlay` in exports.lua. Intensities and saturations
+-- multiply; each overlay's colour is mixed over what is below it, in the
+-- order of its source name, so the answer does not depend on who called
+-- first. The fog distance is the weather's alone. Overlays apply wherever
+-- the player is — underground, and off the overworld, where the weather's
+-- own part is nil.
+M.overlays = {}                 -- uuid -> source -> { intensity, sky, sky_mix, saturation }
+
+local function compose(weather, layers)
+    local intensity, saturation, fog = 1.0, 1.0, 1.0
+    local colour, mix = { 0.0, 0.0, 0.0 }, 0.0
+    if weather then
+        intensity, saturation, fog = weather.intensity, weather.saturation, weather.fog_distance
+        colour, mix = { weather.sky[1], weather.sky[2], weather.sky[3] }, weather.sky_mix
+    end
+    local sources = {}
+    for source in pairs(layers or {}) do
+        sources[#sources + 1] = source
+    end
+    table.sort(sources)
+    for _, source in ipairs(sources) do
+        local o = layers[source]
+        intensity = intensity * o.intensity
+        saturation = saturation * o.saturation
+        if o.sky_mix > 0 then
+            -- Mixing towards c1 by m1 and then towards c2 by m2 is one mix
+            -- by 1 - (1 - m1)(1 - m2) towards their weighted blend.
+            local total = 1 - (1 - mix) * (1 - o.sky_mix)
+            for i = 1, 3 do
+                colour[i] = (colour[i] * mix * (1 - o.sky_mix) + o.sky[i] * o.sky_mix) / total
+            end
+            mix = total
+        end
+    end
+    if intensity == 1.0 and saturation == 1.0 and fog == 1.0 and mix == 0.0 then
+        return nil
+    end
+    return { intensity = intensity, sky = colour, sky_mix = mix, fog_distance = fog, saturation = saturation }
+end
+
+-- Sends a player's modifier: `weather` is the weather's own part, or nil.
+-- Only when the composed answer changed.
+local function send_sky(uuid, was, weather, ease)
+    was.weather_sky = weather
+    local sky = compose(weather, M.overlays[uuid])
+    local key = sky and string.format("%.3f:%.3f:%.3f:%.3f:%.3f:%.3f:%.3f", sky.intensity, sky.sky[1],
+        sky.sky[2], sky.sky[3], sky.sky_mix, sky.fog_distance, sky.saturation) or nil
+    if was.sky == key then
+        return
+    end
+    was.sky = key
+    if sky then
+        sky.ease_ticks = ease or config.EASE_TICKS
+    end
+    game.set_sky_modifier(uuid, sky)
+    M.stats.sky = M.stats.sky + 1
+end
+
+-- An overlay from another mod: `spec` nil removes it. Answers false for a
+-- player this mod has never seen. Sent at once, not at the next evaluation.
+function M.set_overlay(uuid, source, spec, ease)
+    local layers = M.overlays[uuid]
+    if spec == nil then
+        if layers == nil or layers[source] == nil then
+            return true
+        end
+        layers[source] = nil
+        if next(layers) == nil then
+            M.overlays[uuid] = nil
+        end
+    else
+        if layers == nil then
+            layers = {}
+            M.overlays[uuid] = layers
+        end
+        layers[source] = spec
+    end
+    local was = sent[uuid]
+    if was == nil then
+        was = {}
+        sent[uuid] = was
+    end
+    send_sky(uuid, was, was.weather_sky, ease)
+    return true
+end
+
 local function sky_for(uuid, square, exposure, was)
     local row = M.SKY[square.kind]
     local far = square.intensity * exposure // 15 / 1000
     if row == nil or far <= 0 then
-        if was.sky then
-            was.sky = nil
-            game.set_sky_modifier(uuid, nil)
-        end
+        send_sky(uuid, was, nil)
         return
     end
     local function towards(one, other)
@@ -242,20 +331,13 @@ local function sky_for(uuid, square, exposure, was)
     local function further(value, by)
         return value * (1 - (1 - by) * up)
     end
-    local key = string.format("%s:%.3f:%.2f", square.kind, far, up)
-    if was.sky == key then
-        return
-    end
-    was.sky = key
-    game.set_sky_modifier(uuid, {
+    send_sky(uuid, was, {
         intensity = further(towards(1.0, row.intensity), M.MEGA_SKY.intensity),
         sky = row.sky,
         sky_mix = math.min(1.0, towards(0.0, row.sky_mix) + (M.MEGA_SKY.sky_mix - row.sky_mix) * up),
         fog_distance = further(towards(1.0, row.fog), M.MEGA_SKY.fog),
         saturation = further(towards(1.0, row.saturation), M.MEGA_SKY.saturation),
-        ease_ticks = config.EASE_TICKS,
     })
-    M.stats.sky = M.stats.sky + 1
 end
 
 -- One ambience loop per player: the gain MOVES rather than restarting, so a
@@ -1126,6 +1208,28 @@ controller.on_evaluated(function()
             if square.intensity > 0 and (square.kind == "storm" or (square.mega or 0) > 0) then
                 strike(square, tick)
             end
+        elseif not was.away then
+            -- Off the overworld (Wx-S3), or nowhere yet: nothing of the
+            -- weather follows them. The overlays other mods laid stay.
+            was.away = true
+            M.exposure[uuid] = nil
+            if was.precip then
+                was.precip = nil
+                game.set_precipitation(uuid, nil)
+            end
+            if was.loop then
+                was.loop = nil
+                game.stop_loop{ id = LOOP_ID, player = uuid, fade_ticks = config.EASE_TICKS }
+            end
+            send_sky(uuid, was, nil)
+            if HAS_CLOUDS and was.clouds then
+                was.clouds, was.base = nil, nil
+                game.set_clouds(uuid, nil)
+                M.clouds_sent[uuid] = nil
+            end
+        end
+        if square and square.kind then
+            was.away = nil
         end
     end
 end)
@@ -1142,6 +1246,7 @@ wx.on_leave(function(uuid)
     sent[uuid] = nil
     M.clouds_sent[uuid] = nil
     M.exposure[uuid] = nil
+    M.overlays[uuid] = nil
 end)
 
 return M

@@ -92,13 +92,21 @@ puddles on**.
 "tiamat_weather:rainwater" }` on its dirt and sand. Named, the block drinks
 that fluid alone, so it wets in the rain without draining the rivers — the
 thing `absorbs` could not do when the plan was written. That would replace
-Weather's material swap for damp ground with the engine's own. Weather does
-not need it: if it lands, `config.damp_ground = false` and the ground still
-wets. The fluid is resolved at freeze, so naming it is safe even though
-Weather registers it later.
+Weather's material swap for damp ground with the engine's own. The fluid is
+resolved at freeze, so naming it is safe even though Weather registers it
+later, and since engine 1c475a8 (ask 43) so is the cross-mod `becomes`.
+Leave `damp_ground` on if it lands: the soaking would be the engine's, but
+the DRYING stays Weather's (its sampler near players, and each damp block's
+random tick). **Partial blocks dry too, keeping their shape** (2026-09-30,
+World's warning on ask 43): the engine's soak swap keeps a chiselled or
+smoothed block's shape, and Weather's drying used to skip anything not
+whole, which would have left every smoothed slope a puddle ran down damp for
+good. A damp block of one material now dries to its dry twin with the same
+cells; a mixed block (two materials in it) is still left alone, since the
+masked write would lose the other material's cells.
 
 **Wanted for clouds (optional):** `dome_y(x, z)`, a function answering the
-base dome's world y there. Weather sends each player a cloud floor 400 blocks
+base dome's world y there. Weather sends each player a cloud floor 500 blocks
 over the ground under them, and reads the ground from this when it is
 exported, and from its mirrored dome formula when it is not. Version 1 stays
 valid without it; it matters only if the dome is ever reshaped.
@@ -138,7 +146,13 @@ if wx then
     wx.ignite(x, y, z)           -- boolean: light it, under the natural rules
     wx.extinguish(x, y, z)       -- boolean: put that block out
     wx.fires()                   -- blocks alight, blazes alight
-    wx.on_lightning(fn)          -- boolean: fn(x, y, z) after every bolt, grounded or not
+    wx.fires_near(x, y, z, r)    -- list of { x, y, z } alight within r (r up to 64)
+    wx.on_lightning(fn)          -- boolean: fn(x, y, z) after every bolt
+
+    -- Sibling asks, answered 2026-09-30 (the version stays 1).
+    wx.wind(x, z)                -- x, z, strength: direction, and 0..1 from the weather there
+    wx.add_overlay(player, source, spec | nil)
+                                 -- boolean: your sky modifier, laid over the weather's
 end
 ```
 
@@ -155,12 +169,11 @@ allows a fire there now. `false` is any of "off in this world", "no fuel",
 "cap", "resting" or "already alight"; the reason is not exported. Only `/weather fire` skips
 the rest and the spacing, and nothing skips the caps (plan 5.12).
 
-**`on_lightning(fn)`** calls `fn(x, y, z)` with the block the flash was
-centred on, after the flash, for every bolt: the block over the ground it
-struck, or — when no column under the bolt answered (unloaded, or nothing
-within 128 blocks) — `STRIKE_ABOVE` (40) blocks over the player, a point in
-the air with nothing under it. Check the ground yourself if a bolt in the
-air should not count. It is a callback passed
+**`on_lightning(fn)`** calls `fn(x, y, z)` with the block over the ground a
+bolt struck, for every bolt. Since 2026-09-28 a bolt only lands on ground
+under open sky, found from the cloud floor down; a strike with no such
+ground among its candidates is no bolt at all, so there is no longer a bolt
+in the air, and none underground. It is a callback passed
 in, so it runs in **your** sandbox: a fault in it disables your mod, not
 Weather, and Weather logs it once and goes on. Register once, at load.
 
@@ -179,6 +192,51 @@ for its thermometer — has to cross the same way as the unlocks, the Spindle's
 pattern in reverse: Life exports a taker, Weather calls it at load with the
 functions Life wants, and they run in Weather's sandbox and fault on Weather.
 That taker is not built; it is the open item on this page.
+
+### Sibling asks, answered (2026-09-30)
+
+From `Tiamat_Default_Science/docs/sibling-asks.md` (Wx-S1 to Wx-S4) and
+`Tiamat_Default_Magic/docs/sibling-asks.md` (Wx-M1, which is Wx-S2). Those
+files are the siblings' own, so the answers are here, and each sibling marks
+its own ask answered.
+
+- **Wx-S1, wind.** `wx.wind(x, z)` answers `x, z, strength`. The direction
+  is the climate's (rim-ward on the Spindle, normalised by `|x| + |z|`, so
+  its length is 1 along an axis and about 0.71 on a diagonal; a slow turn of
+  the compass on a plain world). The strength is 0..1 from the weather over
+  that point: 0.2 on a clear day, 0.35 cloudy, a precipitating kind easing
+  from 0.35 to its own with its intensity (rain 0.5, snow and ash 0.4, a
+  storm or an ash storm 0.85, dust 0.9, a blizzard 1), and a mega storm
+  pushing any of them towards 1. Nil before the world is open.
+
+- **Wx-M1 / Wx-S2, a layered sky overlay.**
+  `wx.add_overlay(player, source, { intensity?, sky?, sky_mix?,
+  saturation?, ease_ticks? })` lays your modifier over the weather's, and
+  `nil` for the spec removes it. `set_sky_modifier` is one modifier a
+  player and the last writer wins, so do not call it yourself for a player
+  Weather is steering: call this. Composition: intensities and saturations
+  multiply; each overlay's `sky` is mixed over what is below it by its
+  `sky_mix`, in the order of the `source` strings (so it does not depend on
+  who called first); the fog distance is the weather's alone. Ranges are the
+  engine's (intensity 0..2, sky channels 0..2, sky_mix 0..1, saturation
+  0..4, ease_ticks up to 2400); `sky` is required when `sky_mix` is over 0,
+  as `{ r, g, b }` or `{ r =, g =, b = }`. A string `source` of 1 to 64
+  bytes names yours, one overlay per source a player, sixteen sources a
+  player at most. Sent at once, and kept until removed or the player
+  leaves — underground and off the overworld too, where the weather's own
+  part is nothing. `false` for a bad spec, nil for a bad call.
+
+- **Wx-S3, domains.** Weather is the overworld's. A player in any other
+  domain (as `game.look_direction` names it) is in no square: no rain, sky,
+  loop, clouds, HUD label, sampled ground or aimed bolt, and what Weather
+  had sent is taken back when they leave. `weather_for` and `falling_on`
+  answer nil for them. Overlays stay. On an engine without
+  `look_direction`, everyone is in the overworld, as before.
+
+- **Wx-S4, fires near a point.** `wx.fires_near(x, y, z, r)` answers the
+  blocks alight within `r` (a sphere, 0..64 blocks) as a list of
+  `{ x, y, z }`, ordered by x, then y, then z; pair it with
+  `wx.extinguish(x, y, z)` for a lightning rod. Nil for a bad argument.
 
 ## What Life exports for Weather (`tiamat_default_life`)
 
