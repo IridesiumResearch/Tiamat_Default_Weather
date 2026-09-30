@@ -1552,3 +1552,44 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   mechanism: a map clear everywhere but one wet square, seen from above,
   where the old rule drew a square cloud and the new one lets a heap
   centred in the square reach past its edge. Nothing changes on this side.
+
+### 10.21 The designer's round, and the siblings (2026-09-25 to 2026-09-30)
+
+- **Rarer rain, clearer skies.** `/weather survey` (new) measured rain or
+  snow 41% of the year and storms 27%, and 82% at the wettest place: the
+  humidity field is so wide that a wet place was wet for good. Moisture now
+  weighs 0.4, cloud from 0.12, rain from 0.32, storms from 0.46: clear 61%,
+  falling 18%, storms 7%, 31% at the wettest. The clear sky is nearly
+  cloudless (cumulus 0.06, altocumulus 0.08).
+- **Puddles.** A settled puddle left the fluid solver and was never rolled
+  for evaporation again, so every one a storm laid stayed (W24, landed
+  1c475a8: an open puddle stays on the solver's books until it is gone).
+  Weather lays a quarter as many (one sampled column in 32), 4 cells in a
+  storm; for a few days it also cleared puddles near players itself, now
+  retired since the engine dries them.
+- **Rain and snow** are pictures on the precipitation burst: a 1x2 blue
+  streak and a crisp square, a little larger, where they were soft discs.
+- **Lightning.** One storm evaluation in 4 strikes (was 12), the flash two
+  ticks up and sixteen down with up to two dimmer re-strokes, and a drawn
+  bolt from the cloud floor (W26, 1eccb62). One strike in 500 is aimed at a
+  player under open sky and burns them ten seconds through Life.
+- **Nothing underground.** A bolt's ground is found from the cloud floor
+  down and kept only under open sky; no ground, no bolt. Flash, bolt and
+  thunder go by name to the players out under the sky and nobody else (W28,
+  cbbbc5e). The bottom of a shaft is underground though the sun reaches it
+  (four probes 8 blocks out, all over the head). Cave fog is the engine's
+  per-fragment `cave_fog` (W29, 0fdbca8), the same at every hour.
+- **Clouds** a quarter higher (500 over the ground, lifts 400 and 200),
+  cubes of 32 and 180 thick for about a fifth off the deck's cost; the rest
+  is the pass's (W27, step 1 landed f4ceb53, gate not met). The brown
+  sunward face at sunset is W25 (7020552).
+- **Fog and rainbows.** Fog is a dry kind with a thickness, on one wet
+  morning in three per 1024-block region, dawn to mid-morning, about 2% of
+  the year. Rainbows follow one rain in two by day for two minutes; weather
+  decides, the engine draws (W30, filed).
+- **No HUD.** The on-screen weather line is gone; `/weather` and the
+  exports still name it.
+- **The siblings' asks** (Science Wx-S1 to S4, Magic Wx-M1), answered in
+  `exports-contract.md`: `wind`, `add_overlay`, `fires_near`, and weather
+  standing aside off the overworld. Damp partial blocks dry keeping their
+  shape (World's warning on its ask 43).

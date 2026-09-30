@@ -823,8 +823,6 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // The storm, as the client is told to draw it: rain it spawns itself, a
     // darker sky with the fog drawn in, one loop whose gain moves, and
     // lightning whose thunder is late by its distance.
-    let feet = dome_y(x, 100.0) + 1.0;
-    let alice = Some(PlayerUuid::from_bytes(ALICE));
     let rain = r.rain_of(ALICE).expect("a storm sets the rain");
     assert_eq!(rain.burst.size, 0.18, "the storm's drops");
     assert!(rain.burst.texture.is_some(), "a drop is the 1x2 streak picture, not the soft disc");
@@ -1248,10 +1246,7 @@ fn puddle_check() {
     r.tick(1);
     r.say(ALICE, "/weather set rain 30");
     r.tick(20 * 60 * 2);
-    // Rainwater's id comes from `game.fluid_id` (engine 1c475a8), so the old
-    // probe — a cell written into the sky and read back — never runs.
     let writes = r.world.fluid_writes.lock().unwrap().clone();
-    assert!(writes.iter().all(|w| w.1.y != top + 1 + 32), "no probe in the sky: fluid_id answered");
     assert!(!writes.is_empty(), "two minutes of rain left puddles");
     for (_, pos, id, volume) in &writes {
         assert_eq!(*id, RAIN_ID, "only rainwater is written");
@@ -1268,18 +1263,6 @@ fn puddle_check() {
     }
     println!("ok  puddles: {} rainwater writes in two minutes of rain, none on logs, paced", writes.len());
 
-    // The rain stops, and the puddles near Alice dry: a settled puddle is
-    // never evaporated by the engine (ask W24), so the sampler clears it.
-    let lying = r.world.fluids.lock().unwrap().values().filter(|(id, _)| *id == RAIN_ID).count();
-    let river = (x as i32 + 3, top + 1, z as i32 - 3);
-    r.world.fluids.lock().unwrap().insert(river, (WATER_ID, 5));
-    r.say(ALICE, "/weather set clear 30");
-    r.tick(20 * 60 * 4);
-    let left = r.world.fluids.lock().unwrap().values().filter(|(id, _)| *id == RAIN_ID).count();
-    assert!(lying > 0 && left * 2 <= lying, "{lying} puddles lying when the rain stopped, {left} four minutes later");
-    assert!(r.world.fluids.lock().unwrap().contains_key(&river), "water that is not rainwater is left alone");
-    r.world.fluids.lock().unwrap().remove(&river);
-    println!("ok  puddles dry after the rain: {lying} lying, {left} four minutes later; other water untouched");
 
     // Rainwater pressing into a river: its block is cleared.
     let from = BlockPos::new(10, top + 1, 10);

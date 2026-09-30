@@ -180,17 +180,15 @@ return {
     DRY_AFTER_TICKS = 1200,     -- damp ground near a player dries this long after the rain
     THAW_MEMORY_TICKS = 72000,  -- a square that snowed within this still gets near-player thaw samples
     -- Puddles, retuned 2026-09-25 ("rain creates way too many water
-    -- sources"). A puddle that has finished spreading leaves the engine's
-    -- fluid solver, and evaporation is rolled only on a solver visit, so a
-    -- settled puddle never dried at all (engine ask W24): every one a storm
-    -- ever laid was still there. Fewer and smaller now, and the sampler
-    -- dries what it finds once the rain has been gone PUDDLE_DRY_AFTER_TICKS.
+    -- sources"): fewer and smaller. They dry by the fluid's own `evaporates`,
+    -- which since engine 1c475a8 (ask W24) keeps a settled puddle open to the
+    -- air on the solver's books until it is gone; before that a settled
+    -- puddle was rolled once and then never again, and lay there for good.
     PUDDLE_ONE_IN = 32,         -- one sampled column in this many gets rainwater: puddles, not a film
     PUDDLE_CELLS = 3,           -- cells of rainwater a sampled column gets in RAIN
     STORM_PUDDLE_CELLS = 4,     -- and in a STORM
     MEGA_PUDDLE_CELLS = 8,      -- and in a mega storm
-    PUDDLE_DRY_AFTER_TICKS = 600, -- rainwater near a player is dried this long after the rain
-    RAIN_EVAPORATES = 100,      -- one cell in this many fluid ticks (10 Hz), while a puddle is still moving
+    RAIN_EVAPORATES = 100,      -- one cell in this many fluid ticks (10 Hz): a puddle open to the air is gone in about a minute
 
     -- ---------------------------------------------------------- fire
     -- Plan 5.12. "Not out of control" is the first requirement, so every
