@@ -723,6 +723,7 @@ fn main() {
     cave_lightning_check();
     sibling_asks_check();
     fog_check();
+    night_storm_check();
     rainbow_check();
     cloud_lift_check();
     plain_check();
@@ -2440,6 +2441,32 @@ fn fog_check() {
     let fog_share = number_after(&survey, "fog ");
     assert!((3.0..=20.0).contains(&fog_share), "every dry morning foggy is a few percent of the year: {survey}");
     println!("ok  fog: forced to fog distance {forced:.2}, silent and dry; at dawn `{}`, gone by noon; {fog_share:.0}% of the year when every morning may be", &morning[..20.min(morning.len())]);
+}
+
+// A storm at night is darker than one by day (2026-10-01): the storm's sky
+// colour is a daylight colour, scaled down at night, and the light dimmed
+// further, so a night storm does not lift the dark sky to grey.
+fn night_storm_check() {
+    let x = 0.5 * 59000.0;
+    let mut r = Rig::new(true, Arc::new(Storage::default()));
+    r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
+    r.join(ALICE, x, dome_y(x, 100.0) + 1.0, 100.0);
+    r.tick(41);
+    r.say(ALICE, "/weather set storm 30");
+    r.tick(40 * 25);
+    let noon = r.sky_of(ALICE).expect("a storm by day");
+    *r.sounds.tod.lock().unwrap() = Some(0.0);
+    r.tick(41);
+    let midnight = r.sky_of(ALICE).expect("a storm by night");
+    assert!(midnight.sky[0] < noon.sky[0] * 0.2 && midnight.sky[2] < noon.sky[2] * 0.2,
+        "the storm's colour is dark at night: {:?} by day, {:?} by night", noon.sky, midnight.sky);
+    assert!(midnight.intensity < noon.intensity, "and the light dimmer: {} by day, {} by night", noon.intensity, midnight.intensity);
+    *r.sounds.tod.lock().unwrap() = Some(0.75);
+    r.tick(41);
+    let dusk = r.sky_of(ALICE).expect("a storm at dusk");
+    assert!(dusk.sky[0] < noon.sky[0] && dusk.sky[0] > midnight.sky[0], "dusk between them: {:?}", dusk.sky);
+    println!("ok  night storm: sky {:.2} by day, {:.2} at dusk, {:.2} at midnight; light {:.2} by day, {:.2} at midnight",
+        noon.sky[0], dusk.sky[0], midnight.sky[0], noon.intensity, midnight.intensity);
 }
 
 // Rainbows (2026-09-30): after rain, by day, in the open.

@@ -84,10 +84,12 @@ M.PRECIP = {
 -- intensity 0, so a storm darkens the sky as it eases in.
 M.SKY = {
     cloudy    = { intensity = 0.90, sky = { 0.72, 0.75, 0.80 }, sky_mix = 0.35, fog = 0.85, saturation = 0.90 },
-    -- Morning fog: the world a few dozen blocks deep, pale, the sun softened.
-    -- `fog` is a share of the player's own fog distance, so at 0.12 a view
-    -- of twelve chunks sees about twenty blocks into it.
-    fog       = { intensity = 0.85, sky = { 0.80, 0.82, 0.84 }, sky_mix = 0.70, fog = 0.12, saturation = 0.75 },
+    -- Morning fog: the world a couple of dozen blocks deep, pale, the sun
+    -- softened. `fog` is a share of the player's own fog distance, and 0.05
+    -- is the engine's least: a view of twelve chunks sees about ten blocks
+    -- into it, of twenty-four about twenty. 0.12 until 2026-10-01 ("fog
+    -- barely shows"): at a long view distance that was fifty blocks.
+    fog       = { intensity = 0.80, sky = { 0.80, 0.82, 0.84 }, sky_mix = 0.85, fog = 0.05, saturation = 0.70 },
     rain      = { intensity = 0.72, sky = { 0.60, 0.64, 0.70 }, sky_mix = 0.55, fog = 0.60, saturation = 0.80 },
     storm     = { intensity = 0.45, sky = { 0.45, 0.48, 0.55 }, sky_mix = 0.80, fog = 0.35, saturation = 0.65 },
     snow      = { intensity = 0.80, sky = { 0.85, 0.88, 0.92 }, sky_mix = 0.50, fog = 0.50, saturation = 0.85 },
@@ -320,6 +322,40 @@ function M.set_overlay(uuid, source, spec, ease)
     return true
 end
 
+--
+-- **At night the weather is dark too** (2026-10-01: "night-time storms need
+-- to be darker"). A kind's `sky` is a daylight colour, and the modifier
+-- MIXES the sky towards it, so at night a storm pulled a near-black sky up
+-- to mid-grey: the fog and the horizon brightened in the rain. So the
+-- colour is scaled by the daylight, down to NIGHT_SKY of itself, and the
+-- weather's own darkening of the light is pushed further by NIGHT_DARKEN,
+-- both easing through dawn and dusk.
+local NIGHT_SKY = 0.10
+local NIGHT_DARKEN = 0.6
+
+-- How much day it is, 0 at night to 1 by day, in twentieths, from the clock:
+-- up across DAWN, down across DUSK. Fully day on an engine with no clock.
+local DAWN = { 0.20, 0.30 }
+local DUSK = { 0.70, 0.80 }
+local function daylight(tick)
+    local t = controller.day_fraction(tick)
+    if t == nil then
+        return 1.0
+    end
+    local d
+    if t <= DAWN[1] or t >= DUSK[2] then
+        d = 0.0
+    elseif t < DAWN[2] then
+        d = (t - DAWN[1]) / (DAWN[2] - DAWN[1])
+    elseif t > DUSK[1] then
+        d = (DUSK[2] - t) / (DUSK[2] - DUSK[1])
+    else
+        d = 1.0
+    end
+    return math.floor(d * 20 + 0.5) / 20
+end
+M.daylight = daylight
+
 local function sky_for(uuid, square, exposure, was)
     local row = M.SKY[square.kind]
     local far = square.intensity * exposure // 15 / 1000
@@ -327,6 +363,10 @@ local function sky_for(uuid, square, exposure, was)
         send_sky(uuid, was, nil)
         return
     end
+    local day = daylight(wx.now)
+    local shade = NIGHT_SKY + (1 - NIGHT_SKY) * day
+    local colour = { row.sky[1] * shade, row.sky[2] * shade, row.sky[3] * shade }
+    local night = 1 - (1 - NIGHT_DARKEN) * (1 - day)
     local function towards(one, other)
         return one + (other - one) * far
     end
@@ -337,8 +377,8 @@ local function sky_for(uuid, square, exposure, was)
         return value * (1 - (1 - by) * up)
     end
     send_sky(uuid, was, {
-        intensity = further(towards(1.0, row.intensity), M.MEGA_SKY.intensity),
-        sky = row.sky,
+        intensity = further(towards(1.0, row.intensity * night), M.MEGA_SKY.intensity),
+        sky = colour,
         sky_mix = math.min(1.0, towards(0.0, row.sky_mix) + (M.MEGA_SKY.sky_mix - row.sky_mix) * up),
         fog_distance = further(towards(1.0, row.fog), M.MEGA_SKY.fog),
         saturation = further(towards(1.0, row.saturation), M.MEGA_SKY.saturation),
