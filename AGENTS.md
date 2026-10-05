@@ -194,6 +194,14 @@ for a mod that wants the block's state then. And a tools mod's `default` hand
 wins over the engine's reference `core_tools:hand` whatever the ids, so it need
 not `conflicts` the fixture out of the set to be the hand.
 
+**Every place, dig and use event says which space it is in** (`e.domain`:
+`"overworld"`, or a domain's id). A block placed on a body at a star is not
+the block at the same coordinates in the overworld, so a mod that records
+placed things — a station, a frame, a box — keys them on the domain and the
+coordinates together, and reads the block back with `game.get_block{ x, y,
+z, domain = e.domain }`. Keeping each player's domain from the move hook and
+trusting the order was the workaround; the field is the fix.
+
 **Right-clicking a block with nothing to place is `register_on_use`**, not a
 cancelled dig. Picking fruit, opening a door, pulling a lever: the event has the
 cell, what it is made of and what is in the hand, `game.get_block` works inside
@@ -801,7 +809,10 @@ end)
 
 `visibility` is how many blocks a player sees into it (95% hidden there), the
 colour is its colour in daylight — the engine dims it at night — and `top` makes
-it ground fog that thins over a few blocks above that height. The engine blends
+it ground fog that thins over a few blocks above that height. `bottom` is its
+mirror: the fog thins over the same few blocks below it, so a surface fog can
+stand on its biome's ground instead of filling every cave under the column
+(`bottom = ground - margin`); without one the fog goes all the way down. The engine blends
 columns, and a fog is visible from outside as well as inside, so return what the
 PLACE is and let the edges take care of themselves. It runs where the tint does,
 in the generation workers.
@@ -1299,6 +1310,56 @@ Blending a biome's COLOUR is the exception, and it is an engine feature
 (`register_chunk_tint`, above) for a reason you cannot work around: the blend
 has to happen where the pixels are, and a mod has no way to reach them.
 
+**A campfire is a `model` block, and it is `whole`.** A block whose look is a
+shape no cube is — a campfire, a brazier, an anvil, a machine — names a model
+you registered, and the client draws that in place of the block's cells. What
+the WORLD knows of it is its `shape`: which of the 27 cells it occupies, for
+collision, light, fluid and the aim. The two need not agree, as a creature's
+collider and its mesh need not: a fire whose flames reach the top of the block
+and whose shape is its bottom layer is the intended use.
+
+```lua
+game.register_model{ id = "campfire", file = "models/campfire.glb", texture = "models/campfire.png" }
+
+game.register_block{
+    id = "campfire",
+    model = "campfire",             -- your own model; another mod's as "their_mod:thing"
+    shape = {                       -- three layers, bottom first; nine cells each
+        "### ### ###",              -- z = 0, 1, 2 rows, x left to right
+        ".#. .#. .#.",
+        "... ... ...",
+    },
+    light_emit = { r = 15, g = 10, b = 4 },
+    hardness = 0.5,
+    textures = { all = "textures/campfire_icon.png" },   -- what the inventory shows
+}
+```
+
+A model block is **whole** without saying so: any tool digs the block, not the
+cell — a chisel included — in the block's own `hardness`, it comes off in one
+piece and pays a whole block's units (27, or your `drops` table in full) however
+many cells its shape has; placing it writes the shape into an EMPTY block and
+costs 27 units whatever brush is held; and nothing is ever written into its
+block — a chisel cannot fill in a campfire, and a `set_block` with a mask or a
+merge naming one is refused and logged. `whole = true` alone, with no model,
+gives a cube-looking block the same one-piece behaviour. `shape` needs one or
+the other: a registered shape a chisel could take apart would be a cut, and a
+cut is carried, not registered.
+
+The model is in cells, like a creature's: **three units to the block**, origin
+at the bottom centre, +Z forward, and `register_model`'s `scale` applies. It is
+lit as a creature is — one light for the model, the brightest at the block and
+its six neighbours — and it draws nothing until the model table has arrived,
+never a placeholder cube. `transparent`, `cutout`, `sway` and `billboard` are
+refused on it: it has no faces for them to apply to. The shape is written as
+declared, not turned to face the player; a block that should face four ways is
+four registered blocks for now.
+
+`game.set_block(x, y, z, "my_mod:campfire")` writes the shape; so do a stamped
+plan and a generator's `buf:set_block` / `buf:set_world`. A generator's area
+fills (`fill_density`, cover, palette, a scattered schematic) take a material as
+named — a full cube — so a schematic that wants the shape carries the cells.
+
 ---
 
 ## The sandbox
@@ -1520,11 +1581,19 @@ again for them from `register_on_player_join`.
 **The sky's keyframes are registration-only; the weather over them is not.**
 `register_sky` takes its keyframes in the registration window and the client
 interpolates them from the clock. `game.set_sky_modifier(uuid, { intensity,
-sky, sky_mix, fog_distance, saturation, ease_ticks })` lays a per-player change
-over them at any time — a storm darkens the sun, closes the horizon in and
-greys the grade, eased on that player's client — and `nil` puts the plain sky
-back. It multiplies and mixes rather than replacing, so it is right at every
-hour. `game.flash{ pos, radius, intensity, colour, attack_ticks, decay_ticks }`
+sky, sky_mix, fog_distance, saturation, stars, light_floor, ease_ticks })` lays a per-player
+change over them at any time — a storm darkens the sun, closes the horizon in
+and greys the grade, eased on that player's client — and `nil` puts the plain
+sky back. It multiplies and mixes rather than replacing, so it is right at every
+hour; the one field that replaces is `stars` (0 to 1), which stands in for the
+keyframes' star brightness while the modifier is set, so a black sky with
+`stars = 1` is darkness and stars by day as by night. The other field that
+does not multiply is `light_floor` (0 to 1), the least the frame is lit at:
+the sun term is raised to it where the sky reaches and the ambient floor where
+it does not, so a cave is lit too, colours kept (`intensity` cannot — it
+multiplies midnight's 0.08, and a cave has no sun). `0` or nil changes nothing,
+and out of range is an error. A mod composing overlays sends the HIGHEST floor
+any overlay asks: a floor is a floor, not a product. `game.flash{ pos, radius, intensity, colour, attack_ticks, decay_ticks }`
 is lightning: a moment's light on the sun and sky of everyone in reach, with no
 relight. `game.lightning{ from, to, seed, colour, width, branches, ticks,
 radius, player }` draws the bolt itself — a forked line every client builds

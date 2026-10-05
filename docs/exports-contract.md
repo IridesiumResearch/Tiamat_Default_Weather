@@ -211,11 +211,14 @@ its own ask answered.
 
 - **Wx-M1 / Wx-S2, a layered sky overlay.**
   `wx.add_overlay(player, source, { intensity?, sky?, sky_mix?,
-  saturation?, ease_ticks? })` lays your modifier over the weather's, and
+  saturation?, light_floor?, ease_ticks? })` lays your modifier over the weather's, and
   `nil` for the spec removes it. `set_sky_modifier` is one modifier a
   player and the last writer wins, so do not call it yourself for a player
   Weather is steering: call this. Composition: intensities and saturations
-  multiply; each overlay's `sky` is mixed over what is below it by its
+  multiply; `light_floor` (0..1, since engine daf73304, ask W32) is the
+  least the frame is lit at, in a field and in a cave, and the HIGHEST any
+  overlay asks is sent — the field night-sight wants, since a multiplier on
+  midnight's 0.08 stays night; each overlay's `sky` is mixed over what is below it by its
   `sky_mix`, in the order of the `source` strings (so it does not depend on
   who called first); the fog distance is the weather's alone. Ranges are the
   engine's (intensity 0..2, sky channels 0..2, sky_mix 0..1, saturation

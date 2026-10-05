@@ -830,7 +830,7 @@ fn weather_check(storage: Arc<Storage>) -> String {
     // darker sky with the fog drawn in, one loop whose gain moves, and
     // lightning whose thunder is late by its distance.
     let rain = r.rain_of(ALICE).expect("a storm sets the rain");
-    assert_eq!(rain.burst.size, 0.18, "the storm's drops");
+    assert_eq!(rain.burst.size, 0.27, "the storm's drops");
     assert!(rain.burst.texture.is_some(), "a drop is the 1x2 streak picture, not the soft disc");
     let live = f64::from(rain.rate) * f64::from(rain.burst.lifetime);
     assert!(live <= 2801.0, "{live} live storm particles for one player");
@@ -2300,6 +2300,12 @@ fn sibling_asks_check() {
                 return tostring(wx.add_overlay(event.player, "science:core", { intensity = 9 })) .. " "
                     .. tostring(wx.add_overlay(event.player, "", {})) .. " "
                     .. tostring(wx.add_overlay(event.player, "x", { sky_mix = 0.5 }))
+            elseif t == "/overlay floor" then
+                return tostring(wx.add_overlay(event.player, "magic:night_sight", { light_floor = 0.5 })) .. " "
+                    .. tostring(wx.add_overlay(event.player, "science:lamp", { light_floor = 0.3 }))
+            elseif t == "/overlay floor off" then
+                return tostring(wx.add_overlay(event.player, "magic:night_sight", nil)) .. " "
+                    .. tostring(wx.add_overlay(event.player, "science:lamp", nil))
             elseif t == "/overlay off" then
                 return tostring(wx.add_overlay(event.player, "science:core", nil))
             elseif t:sub(1, 5) == "/near" then
@@ -2348,6 +2354,12 @@ fn sibling_asks_check() {
         "only the overlay underground: {alone:?}");
     r.world.roofs.lock().unwrap().retain(|c| *c != (ax, az));
     r.tick(41);
+    // W32's floor: the highest any overlay asks, never a product.
+    assert_eq!(r.reply(ALICE, "/overlay floor"), "true true");
+    let floored = r.sky_of(ALICE).expect("a floor");
+    assert_eq!(floored.light_floor, Some(0.5), "the highest floor is sent: {floored:?}");
+    assert_eq!(r.reply(ALICE, "/overlay floor off"), "true true");
+    assert_eq!(r.sky_of(ALICE).and_then(|s| s.light_floor), None, "no floor once the overlays go");
     assert_eq!(r.reply(ALICE, "/overlay off"), "true");
     assert_eq!(r.sky_of(ALICE), Some(storm_sky.clone()), "removed, the storm's own sky again");
 

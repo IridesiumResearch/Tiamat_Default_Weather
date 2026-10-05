@@ -60,15 +60,16 @@ local Y_WRAP = 1 << 30          -- rng_stream takes y as a 32-bit integer
 -- `set_precipitation` reads through the same burst parser). Rain is a 1x2
 -- streak and snow a square, crisp at any size: "little 1x2 blue-ish
 -- rectangles, not fuzzy blobs; same with snow" (2026-09-25). A drop's
--- picture is half as wide as the particle, so its size is its HEIGHT.
+-- picture is half as wide as the particle, so its size is its HEIGHT. Half
+-- again bigger since 2026-10-05 ("about 50% bigger").
 M.PRECIP = {
-    rain = { live = 900, size = 0.14, life = 1.0, vy = -22, gravity = 0, wind = 2, picture = "drop",
+    rain = { live = 900, size = 0.21, life = 1.0, vy = -22, gravity = 0, wind = 2, picture = "drop",
         area = { 16, 3, 16 }, above = 18, colour = { 0.55, 0.68, 0.95, 0.6 } },
-    storm = { live = 1200, size = 0.18, life = 0.8, vy = -30, gravity = 0, wind = 5, picture = "drop",
+    storm = { live = 1200, size = 0.27, life = 0.8, vy = -30, gravity = 0, wind = 5, picture = "drop",
         area = { 16, 3, 16 }, above = 18, colour = { 0.48, 0.58, 0.85, 0.7 } },
-    snow = { live = 1400, size = 0.14, life = 5.0, vy = -2.5, gravity = 0.3, wind = 1.5, spread = 0.6, picture = "flake",
+    snow = { live = 1400, size = 0.21, life = 5.0, vy = -2.5, gravity = 0.3, wind = 1.5, spread = 0.6, picture = "flake",
         area = { 16, 4, 16 }, above = 14, colour = { 1, 1, 1, 0.9 } },
-    blizzard = { live = 1400, size = 0.2, life = 3.0, vy = -3, gravity = 0, wind = 10, picture = "flake",
+    blizzard = { live = 1400, size = 0.3, life = 3.0, vy = -3, gravity = 0, wind = 10, picture = "flake",
         area = { 16, 6, 16 }, above = 8, colour = { 1, 1, 1, 0.85 } },
     -- Ash falls on the Ember Ridge, whose fumaroles share the client's budget.
     ash = { live = 700, size = 0.18, life = 7.0, vy = -1.5, gravity = 0.2, wind = 1,
@@ -241,10 +242,14 @@ end
 -- first. The fog distance is the weather's alone. Overlays apply wherever
 -- the player is — underground, and off the overworld, where the weather's
 -- own part is nil.
-M.overlays = {}                 -- uuid -> source -> { intensity, sky, sky_mix, saturation }
+-- `light_floor` (engine daf73304, ask W32) is the one term that is not a
+-- product: the HIGHEST any overlay asks is sent, so two night-sights do not
+-- make a day. It is what lets night-sight light a midnight field and a cave,
+-- where a multiplier on 0.08 could not.
+M.overlays = {}                 -- uuid -> source -> { intensity, sky, sky_mix, saturation, light_floor }
 
 local function compose(weather, layers)
-    local intensity, saturation, fog = 1.0, 1.0, 1.0
+    local intensity, saturation, fog, floor = 1.0, 1.0, 1.0, 0.0
     local colour, mix = { 0.0, 0.0, 0.0 }, 0.0
     if weather then
         intensity, saturation, fog = weather.intensity, weather.saturation, weather.fog_distance
@@ -259,6 +264,7 @@ local function compose(weather, layers)
         local o = layers[source]
         intensity = intensity * o.intensity
         saturation = saturation * o.saturation
+        floor = math.max(floor, o.light_floor or 0.0)
         if o.sky_mix > 0 then
             -- Mixing towards c1 by m1 and then towards c2 by m2 is one mix
             -- by 1 - (1 - m1)(1 - m2) towards their weighted blend.
@@ -269,10 +275,12 @@ local function compose(weather, layers)
             mix = total
         end
     end
-    if intensity == 1.0 and saturation == 1.0 and fog == 1.0 and mix == 0.0 then
+    if intensity == 1.0 and saturation == 1.0 and fog == 1.0 and mix == 0.0 and floor == 0.0 then
         return nil
     end
-    return { intensity = intensity, sky = colour, sky_mix = mix, fog_distance = fog, saturation = saturation }
+    -- Left out at 0, so a sky with no floor is the message it always was.
+    return { intensity = intensity, sky = colour, sky_mix = mix, fog_distance = fog, saturation = saturation,
+        light_floor = floor > 0 and floor or nil }
 end
 
 -- Sends a player's modifier: `weather` is the weather's own part, or nil.
@@ -280,8 +288,8 @@ end
 local function send_sky(uuid, was, weather, ease)
     was.weather_sky = weather
     local sky = compose(weather, M.overlays[uuid])
-    local key = sky and string.format("%.3f:%.3f:%.3f:%.3f:%.3f:%.3f:%.3f", sky.intensity, sky.sky[1],
-        sky.sky[2], sky.sky[3], sky.sky_mix, sky.fog_distance, sky.saturation) or nil
+    local key = sky and string.format("%.3f:%.3f:%.3f:%.3f:%.3f:%.3f:%.3f:%.3f", sky.intensity, sky.sky[1],
+        sky.sky[2], sky.sky[3], sky.sky_mix, sky.fog_distance, sky.saturation, sky.light_floor or 0) or nil
     if was.sky == key then
         return
     end

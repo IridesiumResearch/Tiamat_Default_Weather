@@ -49,7 +49,10 @@
 --                               Science Wx-S2). `source` names yours (a string,
 --                               up to 64 bytes; one overlay per source a player);
 --                               spec { intensity?, sky?, sky_mix?, saturation?,
---                               ease_ticks? }, the engine's ranges; nil removes it.
+--                               light_floor?, ease_ticks? }, the engine's ranges; nil
+--                               removes it. light_floor (0..1, engine W32) is the least
+--                               the frame is lit at, caves too: night-sight. The
+--                               highest any overlay asks is sent, never a product.
 --                               Sent at once. Stays until removed or the player
 --                               leaves, underground and off the overworld too.
 --
@@ -147,8 +150,9 @@ local function overlay_of(spec)
         return nil
     end
     local o = { intensity = spec.intensity or 1.0, saturation = spec.saturation or 1.0,
-        sky_mix = spec.sky_mix or 0.0, sky = { 0.0, 0.0, 0.0 } }
-    if not (in_range(o.intensity, 0, 2) and in_range(o.saturation, 0, 4) and in_range(o.sky_mix, 0, 1)) then
+        sky_mix = spec.sky_mix or 0.0, sky = { 0.0, 0.0, 0.0 }, light_floor = spec.light_floor or 0.0 }
+    if not (in_range(o.intensity, 0, 2) and in_range(o.saturation, 0, 4) and in_range(o.sky_mix, 0, 1)
+        and in_range(o.light_floor, 0, 1)) then
         return nil
     end
     local sky = spec.sky

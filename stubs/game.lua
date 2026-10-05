@@ -460,6 +460,9 @@ function Stream:next_bool() end
 ---@field billboard boolean|"cross"? Whether its cells are drawn as SPRITES rather than as geometry: grass, ferns, flowers. `true` is one card that turns to face the camera; `"cross"` is two FIXED cards on the diagonals of the run's column — the crossed X the classic voxel games draw, which reads as a plant and holds still as the player walks round it. **This is what a sprite card is here** — the engine has no diagonal geometry, and a cell drawn as a cube shows a NINTH of its texture per face (a texture repeats once per block), so grass built from cells reads as little floating boxes. A run of cells in a column is ONE sprite as tall as the run: one cell is a third of a yard, three is a yard. It turns about the vertical axis only, so it never lies over when you look down. The cells stay where they are for collision, light, fluid and the dig ray — only the drawing changes (Sub-Node Contract §8.4). A billboard may not also declare `transparent` or `cutout` — those are rules about a cell's cube faces and a sprite has none; the pair is refused.
 ---@field tint table? How this block's colour varies across the world: `{ strength = 0.15, scale = 32, low = {0.9, 1.0, 0.85}, high = {1.0, 0.95, 1.0} }`. **This is what stops ground reading as a repeating texture.** The client multiplies the texture by a colour sampled from one smooth field of world position — the same field for every material, so neighbouring materials vary together rather than each drifting on its own. `strength` (0..1) moves the TONE and is the whole of what most mods want: brightness variation alone breaks up the repeat. `low` and `high` are optional RGB multipliers at the two ends of the same field, for a hue shift — grass greener in one place than another — and default to no shift at all. `scale` is how many blocks one period spans, tens rather than ones: a period near a block makes noise rather than ground. Presentation only — nothing in the simulation reads it, and it is not in any determinism hash.
 ---@field absorbs { rate: integer, becomes: string?, fluid: string? }? Ground that drinks. `rate` is how many of the block's 27 cells it takes out of fluid touching it, per fluid tick, 1..=27. `becomes` is the block it turns into once it has taken them — a bare name is one of your own, and a namespaced one may be another mod's (`"tiamat_weather:damp_dirt"`), resolved when every mod has registered, so a world running without that mod has a chain that ends here rather than a mod that failed to load. Omit it for ground that drinks for ever without changing, which is a drain rather than a sponge. `fluid` names the ONE fluid it drinks (`"core_milk:milk"`, or a bare name for one of your own); omit it for ground that drinks whatever touches it. Named, it is what lets rain-wet dirt exist beside a river: the dirt that soaks rainwater does not drain the river it is the bed of. A fluid nobody registered is one nothing drinks. **Saturation is a chain of materials, not engine state** (Sub-Node Contract §4.3): `dirt` → `damp_dirt` → `saturated_dirt`, and the chain ends where a block stops naming a successor. A block of two or more materials never absorbs, because there is no way to turn one material inside a mix into its successor without per-cell saturation state.
+---@field whole boolean? Whether a block of it is ONE PIECE (Sub-Node Contract §7.5): any tool digs the block, not the cell — a chisel included — in the block's own `hardness`; it comes off in one edit, never half standing; it pays a whole block's units (27 of itself, or `drops` in full) however many cells its `shape` has; placing it writes the shape into an EMPTY block for 27 units whatever brush is held; and nothing is ever written into its block — not a chisel's cell, not a masked `set_block`, not a merge. Implied by `model`. The client outlines the whole block under the aim.
+---@field shape string[]? Which of the 27 cells a placed block of it occupies: three strings, the BOTTOM layer first, nine cells each — `#` occupied, `.` empty — in three rows of three, a row being one z (0, 1, 2 in turn) read x = 0, 1, 2 left to right; whitespace is ignored, so `"### ### ###"` is a layer. Default: all 27. Needs `whole = true` or a `model`: a registered shape a chisel could take apart would be a cut, and a cut is carried (§9.1), not registered. Collision, light, fluid and the aim see exactly these cells; the shape is written as declared, never turned to face the player.
+---@field model string? A model id from `game.register_model` — a bare name is your own, `"their_mod:thing"` another mod's — that the client draws IN PLACE OF the block's cells (Sub-Node Contract §8.6): a campfire, a brazier, an anvil. Makes the block `whole`. The cells still drive collision, light, fluid and the aim (give it a `shape`); the model is what the player sees, and the two need not agree, as a creature's collider and its mesh need not. In cells, like a creature's model: three units to the block, origin at the bottom centre, +Z forward, `register_model`'s `scale` applied; lit as a creature is, by the brightest light at the block and its six neighbours. `transparent`, `cutout`, `sway` and `billboard` are refused with it — a model has no faces for them. A model nobody registered is a server-side error and the block draws nothing. `textures.all` is still what the inventory shows for it.
 
 ---How `dominance` decides a mixed block's hardness.
 ---
@@ -636,17 +639,40 @@ function game.register_sky(spec) end
 ---    sky_mix = 0.7,                -- how far toward it; 1 when `sky` is given, else 0
 ---    fog_distance = 0.6,
 ---    grade = { saturation = 0.7 }, -- or `saturation = 0.7` at the top level
+---    stars = 1,                    -- the stars' brightness, REPLACING the keyframes'
+---    light_floor = 0.5,            -- the least the frame is lit at, sky-lit or not
 ---    ease_ticks = 400,             -- how long the client takes to get there
 ---})
 ---game.set_sky_modifier(uuid, nil)  -- the plain sky again, eased over the last ease_ticks
 ---```
 ---
+---**`stars` (0 to 1) replaces, where the rest scale.** While the modifier is
+---set, it is how much of the star catalog shows, in place of the keyframes'
+---`stars` — day or night — and it eases like the other fields, from and back to
+---the keyframes' value. Leave it out and the keyframes decide, as they always
+---did; `0` is a say too (no stars). A black sky with `stars = 1` is the sky
+---from under a world.
+---
+---**`light_floor` (0 to 1) is a floor, where `intensity` is a multiplier.**
+---The least the frame is lit at, whether the sky reaches it or not: the sun term
+---is raised to at least `light_floor` where the sky reaches, and the renderer's
+---ambient floor is raised to it where it does not, so a cave is lit too.
+---`intensity` cannot do this: it multiplies the keyframe's, so midnight at 0.08
+---stays night however high you set it, and a cave has no sun to multiply. Colours
+---are kept — it is a floor on brightness, never a tint — and it eases like the
+---rest. Leave it out, or `0`, and nothing changes; at noon a floor at or under
+---the day's own light changes nothing in the open. `light_floor = 0.5` at
+---midnight reads as about half of noon, in a field and in a cave. **A mod that
+---composes overlays sends the HIGHEST floor any overlay asks**: a floor is a
+---floor, not a product, so two night-sights do not make a day. Out of range or
+---not a number is an error, not a clamp.
+---
 ---Set it as often as you like: the server sends one message when it CHANGES.
 ---A player who joins is on the plain sky until you set theirs. Wrong types
 ---are errors; wrong numbers are clamped (intensity 0..2, sky channels 0..2,
----sky_mix 0..1, fog_distance 0.05..4, saturation 0..4, ease_ticks up to 2400).
+---sky_mix 0..1, fog_distance 0.05..4, saturation 0..4, stars 0..1, ease_ticks up to 2400; `light_floor` is the exception, 0..1 or an error).
 ---@param player string A player's UUID in hex, as a hook event reports one.
----@param modifier { intensity?: number, sky?: number[]|{ r: number, g: number, b: number }, sky_mix?: number, fog_distance?: number, saturation?: number, grade?: { saturation?: number }, ease_ticks?: integer }|nil
+---@param modifier { intensity?: number, sky?: number[]|{ r: number, g: number, b: number }, sky_mix?: number, fog_distance?: number, saturation?: number, grade?: { saturation?: number }, stars?: number, light_floor?: number, ease_ticks?: integer }|nil
 ---@return boolean here
 function game.set_sky_modifier(player, modifier) end
 
@@ -1089,6 +1115,7 @@ function game.register_chunk_tint(callback) end
 ---        r = 0.55, g = 0.62, b = 0.55,                  -- the mist, in daylight
 ---        visibility = 20,                               -- blocks you see into it
 ---        top = 70,                                      -- lies under y = 70
+---        bottom = 52,                                   -- and over y = 52
 ---    }
 ---end)
 ---```
@@ -1101,6 +1128,11 @@ function game.register_chunk_tint(callback) end
 ---- `top`: the height it lies under. Above it the fog thins by `e` every four
 ---  blocks — thick in the valley, clear on the hill, and a layer seen from
 ---  above. Leave it out for fog at every height.
+---- `bottom`: the height it lies over, the mirror of `top`: below it the fog
+---  thins by `e` every four blocks. A surface fog gives its biome's ground less a
+---  margin, and does not fill the caves under it; a cave's gives its storey's
+---  floor. Leave it out for fog all the way down (the fog is then as it was
+---  before `bottom` existed). A `bottom` above `top` is lowered to it.
 ---
 ---Return `nil` for no fog of your own — no opinion, so the next mod's answer
 ---stands. Every mod with a callback is asked, in load order, and the last that
@@ -1123,7 +1155,7 @@ function game.register_chunk_tint(callback) end
 ---that carry no fog, so a fogged place far away reads as its nearest column's
 ---fog; under water the water's murk replaces it; and a body (a mob, a player)
 ---is fogged by the camera's own column, not its own.
----@param callback fun(pos: table): { r: number?, g: number?, b: number?, visibility: number, top: number? }|nil
+---@param callback fun(pos: table): { r: number?, g: number?, b: number?, visibility: number, top: number?, bottom: number? }|nil
 function game.register_chunk_fog(callback) end
 
 ---Called when somebody leaves. **Registration window only.**
@@ -3350,15 +3382,17 @@ function game.set_block(position, block, occupancy, options) end
 
 ---A dig about to happen.
 ---@class Tiamat.DigEvent
+---@field domain string The space the dig is in — `"overworld"`, or a domain's id — as the use event carries it. A block dug on a body at a star is not the block at the same coordinates in the overworld; key anything per place on this with the coordinates, not on the coordinates alone.
 ---@field player string Who is digging, as 64 hex characters. This is the canonical player UUID — key any per-player state on it, never on the display name, which a player can change and which is not unique across servers.
 ---@field x integer Sub-node cell being dug. These are CELL coordinates, three per block on each axis, so the block is `x // 3`.
 ---@field y integer
 ---@field z integer
 ---@field material integer Numeric id of what is there. Compare against `game.get_block_id("yourmod:something")`.
----@field brush string `"block"` for the whole block, `"subnode"` for the single cell.
+---@field brush string `"block"` for the whole block, `"subnode"` for the single cell, `"whole"` for a block of a `whole` material, which comes off in one piece whatever the tool (Sub-Node Contract §7.5).
 
 ---A placement about to happen.
 ---@class Tiamat.PlaceEvent
+---@field domain string The space the block is placed in — `"overworld"`, or a domain's id — as the use event carries it. Two frames at one set of coordinates in two spaces are two frames: record a placed thing by its domain and its coordinates together.
 ---@field player string Who is placing, as 64 hex characters.
 ---@field x integer The BLOCK being written — block coordinates, not cells.
 ---@field y integer
