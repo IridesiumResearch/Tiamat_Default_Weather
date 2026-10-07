@@ -531,6 +531,27 @@ a boolean or the chosen STRING — never the raw index — so comparing against
 `"unfair"` keeps working when you insert an option above it, and it answers your
 declared default for a player who has never touched it.
 
+**Declare it in `mod.toml` if the start screen should show it.** The start
+screen runs no Lua, so a setting only `register_setting` knows about appears on
+the in-game settings page but not under your mod on the Mods tab. The same
+setting as a `[[setting]]` shows in both, with the same fields as
+`[[world_option]]` (`id`, `name`, `description`, `options`, `default`):
+
+```toml
+[[setting]]
+id = "difficulty"
+name = "How hard the mimics hit"
+options = ["gentle", "ordinary", "unfair"]
+default = 2        # ONE-BASED here, like [[world_option]]: "ordinary"
+```
+
+One declaration per id: a `register_setting` for an id `mod.toml` already
+declares fails your mod's load ("`my_mod:difficulty` is declared in mod.toml;
+declare a setting once"). `game.setting(uuid, "my_mod:difficulty")` answers the
+same either way. Note the one difference of convention: `register_setting`'s
+`default` is a zero-based index, a manifest's is one-based (a toggle is 0 or 1
+in both).
+
 **Answers belong to the world, not to the machine.** A player's choices are
 remembered per world and per server, so they are still there when they come
 back to that server and do not follow them into the next one. That is the same
@@ -1338,10 +1359,17 @@ game.register_block{
 A model block is **whole** without saying so: any tool digs the block, not the
 cell — a chisel included — in the block's own `hardness`, it comes off in one
 piece and pays a whole block's units (27, or your `drops` table in full) however
-many cells its shape has; placing it writes the shape into an EMPTY block and
-costs 27 units whatever brush is held; and nothing is ever written into its
-block — a chisel cannot fill in a campfire, and a `set_block` with a mask or a
-merge naming one is refused and logged. `whole = true` alone, with no model,
+many cells its shape has; placing it writes the air cells of its shape and
+costs 27 units whatever brush is held — on a chiselled slope it stands among
+the slope's cells, the model clipping through them, because **a block under
+three quarters full is not ground**: placing against its top puts the thing
+INTO that block, standing on the first full block beneath, rather than
+floating a block above (Contract §7.6; the same rule fills a thin floor's gaps
+with loose material instead of starting a block over it); and nothing is ever
+written into its block afterwards — a chisel cannot fill in a campfire, and a
+`set_block` with a mask or a merge naming one is refused and logged. Dug, it
+comes up alone and the ground it stood among stays; a block brush on that
+ground takes the ground and leaves it. `whole = true` alone, with no model,
 gives a cube-looking block the same one-piece behaviour. `shape` needs one or
 the other: a registered shape a chisel could take apart would be a cut, and a
 cut is carried, not registered.

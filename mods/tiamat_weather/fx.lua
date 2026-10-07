@@ -143,14 +143,9 @@ game.register_sound{ id = "thunder", file = "sounds/thunder.wav", gain = 1.0, pi
 game.register_sound{ id = "fire", file = "sounds/fire.wav", gain = 0.9 }
 game.register_sound{ id = "douse", file = "sounds/douse.wav", gain = 0.7, pitch_variance = 0.1 }
 
--- Options index from zero: 2 is "full".
-game.register_setting{
-    id = "particles",
-    name = "Weather particles",
-    description = "Rain and snow drawn around you. The sky and the clouds are not affected; clouds have their own graphics setting.",
-    options = { "off", "low", "full" },
-    default = 2,
-}
+-- The particles setting is declared in mod.toml (`[[setting]]`), so the
+-- start screen's Mods tab shows it as well as the in-game page; declaring it
+-- here too would fail the load. `game.setting` answers the option's text.
 local SETTING = "tiamat_weather:particles"
 local SHARE = { off = 0, low = 1, full = 2 }
 

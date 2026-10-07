@@ -25,3 +25,13 @@ id = "fires"
 name = "Wildfires"
 description = "Lightning and lava can set trees and grass alight. Fires are small, burn out on their own, and rain puts them out."
 default = 1
+
+# A player's own choice, remembered per world. Declared here rather than with
+# game.register_setting so the start screen's Mods tab shows it too (the start
+# screen runs no Lua). One-based, as manifests are: 3 is "full".
+[[setting]]
+id = "particles"
+name = "Weather particles"
+description = "Rain and snow drawn around you. The sky and the clouds are not affected; clouds have their own graphics setting."
+options = ["off", "low", "full"]
+default = 3
