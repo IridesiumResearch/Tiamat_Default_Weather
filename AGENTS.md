@@ -14,6 +14,70 @@ does — and `scripts/check-stubs.sh` fails the engine's build if a `game.*`
 function exists that it does not document. **It cannot fall behind the engine.**
 If something is not in there, it does not exist; do not invent it.
 
+## What changed since engine 0.3.0
+
+If the copy of this file in your mod is older than this list, re-vendor
+`api/` from the engine's `main` and read the sections named here. Each item
+is a mechanism a mod may now use; none of them changes a mod that ignores it.
+
+- **`e.swept` on the place event** (2026-10-08). `true` when the placement
+  destroys what the block holds — a `whole` block laid on a partial block
+  with no top node, or grass cards. A mod gating what a bare hand may clear
+  refuses here with its own words; the remains stay. See "Your hooks".
+- **Nothing is built on grass** (2026-10-08). A `billboard` block — a grass
+  card — is neither ground nor in the way: a placement against it lands
+  where the card is and the card is gone. Nothing to do. Sub-Node Contract
+  §7.6.
+- **A whole block set on a thin floor sweeps the floor** (2026-10-08). On a
+  partial block with no node in its top layer, a `whole` block's placement
+  destroys that block's remains and lays the thing whole at its bottom; with
+  any top node present it goes in the block above, intact. A side-face
+  placement with no air for the shape says "this is not flat ground".
+  Nothing to do. Sub-Node Contract §7.6.
+- **A model block's slot shows the model, a grass card shows the card**
+  (2026-10-08). A `model` block is drawn in a slot as its model in its own
+  skin, from the same angle as a cube, once both have arrived; a `billboard`
+  block is drawn flat, like an item. Nothing to do; `textures` is still what
+  shows until the model lands.
+- **A whole block swapped where one stands** (2026-10-08). `set_block` of a
+  `whole` block on the block another stands in — a campfire lit, a torch burnt
+  out — replaces the thing and keeps the ground cells it was set into. Nothing
+  to do. Sub-Node Contract §7.5.
+- **A part-full block digs in part of the time** (2026-10-08). A block
+  brush's dig takes `hardness` scaled by how full the block was when the dig
+  began: a block a third full, a third of the time. A chisel's cell and a
+  `whole` block are priced as before. Nothing to do. Sub-Node Contract §7.7.
+- **Blocks drawn as models, and blocks dug whole** (2026-10-02).
+  `register_block{ model = "<your model id>", shape = {...} }` draws a
+  registered glTF in place of the block's cells; `whole = true` makes any
+  block one piece: dug whole by any tool, placed as its shape, paid 27 either
+  way. A campfire, a brazier, an anvil, a station. See "A campfire is a
+  `model` block, and it is `whole`" below.
+- **Ground that is not a full block** (2026-10-07). A thing placed against
+  the top of a block under three quarters full goes into that block and
+  stands on the first full block beneath — a whole material's model clips
+  through the ground cells, loose material fills the gaps. Nothing to do: it
+  is how placement works now. Sub-Node Contract §7.6.
+- **`[[setting]]` in `mod.toml`** (2026-10-07). A player setting declared in
+  the manifest shows under your mod on the start screen's Mods tab, before any
+  world is open; `register_setting` stays for the rest. Never both for one id.
+  See "Your mod's own options".
+- **`domain` on the place and dig events** (2026-10-05). `e.domain` says which
+  space a block was placed or dug in; key placed things on it with the
+  coordinates. See the hooks paragraph.
+- **`light_floor` on `set_sky_modifier`** (2026-10-05). The least the frame is
+  lit at, in the open and underground: night-sight. A mod composing overlays
+  sends the highest floor.
+- **A creature turns by its pitch** (2026-10-05). `set_entity(id, { pitch })`
+  on a mod's own model tips it about the middle of its collider; a climbing
+  spider lies on its wall. Players and mounts stay level.
+- **`stars` on `set_sky_modifier`, `bottom` on a chunk's fog** (2026-10-02).
+  A modifier may name how much of the star catalog shows; a surface fog may
+  stop above a cave.
+- **The moon** (2026-10-05). The night is lit from opposite the sun, in the
+  keyframe's night `sun` colour, with shadows; a sky's night keyframes are
+  the moonlight, and no longer need a lifted grade to be legible.
+
 ---
 
 ## What a mod is
@@ -1362,12 +1426,15 @@ piece and pays a whole block's units (27, or your `drops` table in full) however
 many cells its shape has; placing it writes the air cells of its shape and
 costs 27 units whatever brush is held — on a chiselled slope it stands among
 the slope's cells, the model clipping through them, because **a block under
-three quarters full is not ground**: placing against its top puts the thing
-INTO that block, standing on the first full block beneath, rather than
-floating a block above (Contract §7.6; the same rule fills a thin floor's gaps
-with loose material instead of starting a block over it); and nothing is ever
+with no node in its top layer is not ground**: placing against its top sweeps
+that block's remains away and lays the thing whole at its bottom, standing on
+the block beneath; a block with any top node is ground and the thing goes in
+the block above, intact (Contract §7.6; loose material keeps the
+three-quarters rule and fills a thin floor's gaps instead); and nothing is
 written into its block afterwards — a chisel cannot fill in a campfire, and a
-`set_block` with a mask or a merge naming one is refused and logged. Dug, it
+`set_block` with a mask or a merge naming one is refused and logged — except a
+`set_block` of another whole block, which swaps it in place and keeps the
+ground it was set into (a campfire lit, a torch burnt out). Dug, it
 comes up alone and the ground it stood among stays; a block brush on that
 ground takes the ground and leaves it. `whole = true` alone, with no model,
 gives a cube-looking block the same one-piece behaviour. `shape` needs one or

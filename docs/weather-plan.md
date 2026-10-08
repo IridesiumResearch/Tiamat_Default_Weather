@@ -782,9 +782,10 @@ it (7.3).
   next ten minutes.
 - `/weather drift` re-runs the check in 3.4 and replies with the result.
 
-Setting: `game.register_setting{ id = "particles", options = { "off", "low",
-"full" }, default = 2 }`. A bucket's burst uses its players' highest choice,
-so "off" is only honest once ask W4 lands.
+Setting: `particles`, options "off", "low", "full", default "full". Declared
+in `mod.toml` as a `[[setting]]` since 2026-10-07, so the start screen shows
+it too; it was `game.register_setting` before. Rain is each player's own
+emitter since W4, so "off" is honest.
 
 ---
 
@@ -1593,3 +1594,18 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   `exports-contract.md`: `wind`, `add_overlay`, `fires_near`, and weather
   standing aside off the overworld. Damp partial blocks dry keeping their
   shape (World's warning on its ask 43).
+
+### 10.22 After the first play of 0.3.0 (2026-10-01 to 2026-10-08)
+
+- **Night storms dark.** A kind's sky colour is a daylight colour the
+  modifier mixes towards, so at night a storm lifted the dark sky to grey.
+  The colour is scaled by the daylight (to a tenth at night) and the light
+  dimmed further at night (0.6), eased across dawn and dusk.
+- **Fog thicker:** fog distance 0.05, the engine's least, sky mix 0.85.
+- **Rain and snow half again bigger** (rain 0.21, storm 0.27, snow 0.21,
+  blizzard 0.3); counts unchanged.
+- **Engine asks landed:** W31 (stars in Beautiful), W32 (`light_floor` on
+  the sky modifier: `add_overlay` takes it and sends the highest, for
+  Magic's night-sight). W33 (rain fogged away in front of the sky in
+  Beautiful) filed.
+- **The particles setting** moved to `mod.toml` (`[[setting]]`).
