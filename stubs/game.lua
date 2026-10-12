@@ -238,6 +238,9 @@ function ChunkBuffer:fill_layers(depth, code, layers) end
 ---buf:fill_cover(allium, { cells = 6, take = rare })   -- two blocks tall
 ---```
 ---@param material integer
+---**A passable cell is not ground** (2026-10-12). A run stands only on a cell
+---whose material collides, so an earlier call's grass, flowers or plants —
+---every one of them `passable` — are never grown on, and never written over.
 ---@param options table? `{ cells = 1..9, take = Tiamat.Density }`
 function ChunkBuffer:fill_cover(material, options) end
 
@@ -463,6 +466,7 @@ function Stream:next_bool() end
 ---@field whole boolean? Whether a block of it is ONE PIECE (Sub-Node Contract §7.5): any tool digs the block, not the cell — a chisel included — in the block's own `hardness`; it comes off in one edit, never half standing; it pays a whole block's units (27 of itself, or `drops` in full) however many cells its `shape` has; placing it writes its shape, whole, for 27 units whatever brush is held — on a block with any node in its top layer it goes in the block above; on a partial block with NO top node, that block's remains are swept away (destroyed) and it is laid whole at the bottom, on the block beneath (§7.6); by a side face it takes the air cells of its shape and is refused with "this is not flat ground" when there are none; nothing is written into its block afterwards — not a chisel's cell, not a masked `set_block`, not a merge — except a `set_block` of a whole block, which swaps it in place and keeps the ground (a fire lit, a torch burnt out); dug it comes up alone, the ground staying. Implied by `model`. The client outlines its cells under the aim.
 ---@field shape string[]? Which of the 27 cells a placed block of it occupies: three strings, the BOTTOM layer first, nine cells each — `#` occupied, `.` empty — in three rows of three, a row being one z (0, 1, 2 in turn) read x = 0, 1, 2 left to right; whitespace is ignored, so `"### ### ###"` is a layer. Default: all 27. Needs `whole = true` or a `model`: a registered shape a chisel could take apart would be a cut, and a cut is carried (§9.1), not registered. Collision, light, fluid and the aim see exactly these cells; the shape is written as declared, never turned to face the player.
 ---@field sweeps boolean? For a `whole` block: whether, set down on a partial block with no node in its top layer, it sweeps that block's remains away (Sub-Node Contract §7.6). Default `true` — a campfire, a station, which want level ground. `false` makes it stand among the block's cells instead, taking the air cells of its `shape` with its model clipping through the ground, as it does placed by a side face — a torch, a sign; "this is not flat ground" when no cell of its shape is air there. Refused on a block that is not `whole`.
+---@field flicker { depth: number?, rate: number? }? How its light breathes, for a block with `light_emit`: a campfire. `depth` 0..1 is how far the light dips (default 0.3), `rate` 1..30 is steps a second (default 8). Presentation only: the client dims the block light near it with smooth noise and dims the block's own model in step; the light the server propagates is unchanged, and `flicker` without `light_emit` is refused.
 ---@field model string? A model id from `game.register_model` — a bare name is your own, `"their_mod:thing"` another mod's — that the client draws IN PLACE OF the block's cells (Sub-Node Contract §8.6): a campfire, a brazier, an anvil. Makes the block `whole`. The cells still drive collision, light, fluid and the aim (give it a `shape`); the model is what the player sees, and the two need not agree, as a creature's collider and its mesh need not. In cells, like a creature's model: three units to the block, origin at the bottom centre, +Z forward, `register_model`'s `scale` applied; lit as a creature is, by the brightest light at the block and its six neighbours. `transparent`, `cutout`, `sway` and `billboard` are refused with it — a model has no faces for them. A model nobody registered is a server-side error and the block draws nothing. `textures.all` is what a slot shows for it until the model and its skin have arrived; then the slot shows the model, from the angle a cube is shown at.
 
 ---How `dominance` decides a mixed block's hardness.
@@ -1043,6 +1047,12 @@ function game.register_view(spec) end
 ---    texture = "items/sword.png",
 ---}
 ---```
+---
+---**An item moves in whole items.** It has no cells, so a part of one means
+---nothing: in every inventory the engine holds, a right-click halves a stack of
+---it in whole items (the larger half to the hand), a right-click with a stack
+---held puts down one whole item, and `game.give`/`game.take` round to whole
+---items — 27 units each, exactly as 27 units of a block are one block.
 ---@param spec { id: string, name?: string, texture?: string, description?: string }
 ---@return integer material_id
 function game.register_item(spec) end
@@ -1745,7 +1755,10 @@ function game.inventory(player, view) end
 ---and brick.
 ---
 ---Returns false for a player who is not connected, or for a quantity of zero.
----An inventory never refuses for lack of room — it grows.
+---An inventory never refuses for lack of room — it grows. **An item
+---(`register_item`) goes in whole**: of forty units of meat one meat goes in
+---and thirteen come back in `left`, and `slot` refuses a part of an item
+---outright.
 ---@param player string A player UUID in hex.
 ---`slot` names ONE slot of the view, one-based, and then the stack goes in whole
 ---or not at all — an empty slot takes it, one holding the same thing with room
@@ -1860,7 +1873,8 @@ function game.heading(dx, dz) end
 ---the block, whose `material` and missing mask look like loose material's. A
 ---stack table `game.inventory` reported is a spec for the same stack. A cut of
 ---several is taken in whole items: asking for part of one takes the whole
----ones the request covers.
+---ones the request covers. So is an item (`register_item`): ten units of meat
+---is no meat taken, forty is one.
 ---@param player string A player UUID in hex.
 ---`slot` names ONE slot of the view, one-based, to take from that slot alone.
 ---@param spec { material: string|integer?, units: integer?, count: integer?, shape: integer?, cells: (string|integer)[]?, detail: string?, view: string?, slot: integer? }
@@ -4443,7 +4457,7 @@ function game.transfer_entity(id, domain, position) end
 ---a fall of four hundred land at exactly the same number, and a body dropping
 ---through water is slowed by the water before it touches down. Walking down a
 ---step raises nothing: a body that never left the ground never fell.
----@return { pos: { x: number, y: number, z: number }, yaw: number, pitch: number, facing: { x: number, y: number, z: number }, velocity: { x: number, y: number, z: number }, on_ground: boolean, submerged: number, fell: number, source: string, model: string|nil, item: table|nil, anim: integer, health: integer|nil, max_health: integer|nil, owner: string|nil, nametag: string|nil, nametag_player: string|nil }|nil
+---@return { pos: { x: number, y: number, z: number }, yaw: number, pitch: number, facing: { x: number, y: number, z: number }, velocity: { x: number, y: number, z: number }, on_ground: boolean, submerged: number, fell: number, source: string, model: string|nil, item: table|nil, anim: integer, health: integer|nil, max_health: integer|nil, owner: string|nil, nametag: string|nil, nametag_player: string|nil, tint: { r: number, g: number, b: number } }|nil
 function game.entity(id) end
 
 ---Changes an entity. Returns whether anything changed.
@@ -4472,7 +4486,7 @@ function game.entity(id) end
 ---})
 ---```
 ---@param id integer
----@param spec { pos?: { x: number, y: number, z: number }, velocity?: { x: number, y: number, z: number }, yaw?: number, pitch?: number, health?: integer, speed?: number, anim?: integer, drive?: { walk?: { x: number, z: number }, jump?: boolean, gait?: "walk"|"sprint"|"sneak" } }
+---@param spec { pos?: { x: number, y: number, z: number }, velocity?: { x: number, y: number, z: number }, yaw?: number, pitch?: number, health?: integer, speed?: number, anim?: integer, drive?: { walk?: { x: number, z: number }, jump?: boolean, gait?: "walk"|"sprint"|"sneak" }, tint?: { r: number, g: number, b: number }|false, tint_ticks?: integer } `tint` colours the figure, a multiplier on its skin in 0..=1 per channel, until changed (`false` clears it); with `tint_ticks` it is a FLASH over the tint underneath, eased back out over that many ticks by the engine, with no further messages — the hit flash, `{ tint = { r = 1, g = 0.55, b = 0.55 }, tint_ticks = 6 }`. Presentation only, and not persisted: a mod keeping a state across a save sets its colour again.
 ---@return boolean changed
 function game.set_entity(id, spec) end
 

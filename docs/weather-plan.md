@@ -1609,3 +1609,18 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   Magic's night-sight). W33 (rain fogged away in front of the sky in
   Beautiful) filed.
 - **The particles setting** moved to `mod.toml` (`[[setting]]`).
+
+### 10.23 The rainbow's wreck, clearer skies, and the puddles (2026-10-12 to 2026-10-13)
+
+- **A wreck at the end of the rainbow** (`wreck.lua`): a crashed ship at one
+  random end of a bow the player can see, out 40 to 88 blocks on open,
+  level ground, with a Craft chest of a little gold and some loot. Built
+  through the paced queue, since a schematic is stamped only at generation
+  (engine ask W35); the chest by Craft's container name (sibling ask Wx-C1,
+  `docs/sibling-asks.md`). `/weather wreck` builds one.
+- **Clearer skies:** cloud from 0.24, rain from 0.42, storms from 0.54 —
+  clear 73% of the year, rain or snow 10%, storms 3%.
+- **Engine asks:** W34 (clouds in Simple follow the sky) and W35 (a runtime
+  schematic stamp) filed; W36 (a puddle drawn as a full block: the glass
+  pass on wet cells) filed and landed the same day, engine 3394bdb3; W37
+  (the sun drawn as a dark disc) filed.
