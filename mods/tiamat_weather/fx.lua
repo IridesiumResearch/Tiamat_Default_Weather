@@ -434,6 +434,13 @@ local function rainbow_for(uuid, square, exposure, tick)
     if strength == was then
         return
     end
+    -- A bow just shown: there may be a wreck at the end of it (wreck.lua).
+    if was == 0 and strength > 0 and wx.wreck then
+        local ok, err = pcall(wx.wreck.offer, uuid, square, tick)
+        if not ok then
+            game.log("tiamat_weather: a wreck failed: " .. tostring(err))
+        end
+    end
     M.rainbow_sent[uuid] = strength > 0 and strength or nil
     if HAS_RAINBOW then
         if strength > 0 then

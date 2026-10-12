@@ -46,12 +46,14 @@ return {
     -- stormed 60% of it, because the humidity field is so wide that a wet
     -- place was wet for good. Now 18% falling, 7% storm, 31% at the wettest.
     -- The weight is what keeps a wet belt wetter without making it a monsoon.
-    -- CLOUDY_AT sets the clear share: the designer wants nearly cloudless
-    -- skies about 60% of play time, and 0.12 is 64% (0.10 was 61%, 0.20 71%).
+    -- CLOUDY_AT sets the clear share. Raised again 2026-10-12 ("blue skies
+    -- are still too rare, and rain is still too common"): 0.12 / 0.32 / 0.46
+    -- measured clear 61%, falling 18%, storms 7%; now clear 73%, falling 10%,
+    -- storms 3%, 21% at the wettest place.
     MOISTURE_WEIGHT = 0.4,
-    CLOUDY_AT = 0.12,
-    RAIN_AT = 0.32,
-    STORM_AT = 0.46,
+    CLOUDY_AT = 0.24,
+    RAIN_AT = 0.42,
+    STORM_AT = 0.54,
 
     -- ---------------------------------------------------------- fog
     -- Morning fog (2026-09-30): on a clear or cloudy morning over wet ground,
@@ -76,6 +78,18 @@ return {
     RAINBOW_RISE_TICKS = 200,
     RAINBOW_DAY_FROM = 0.27,    -- the sun is up from here...
     RAINBOW_DAY_TO = 0.73,      -- ...to here
+
+    -- ---------------------------------------------------------- wrecks
+    -- A crashed ship at one end of a rainbow (wreck.lua). One per rain event
+    -- that leaves a bow the player can see (the sun low: morning or evening),
+    -- none within WRECK_REGION of the last for WRECK_REST_TICKS.
+    wrecks = true,
+    WRECK_DISTANCE = { 72, 56, 88, 40 }, -- blocks out along the bow's end, tried in turn
+    WRECK_SLOPE = 2,            -- blocks out of level the ground under the hull may be
+    WRECK_REGION = 2048,
+    WRECK_REST_TICKS = 72000,   -- three game days
+    WRECK_MORNING = { 0.26, 0.36 }, -- the sun up, and under 42 degrees: a bow can be seen
+    WRECK_EVENING = { 0.64, 0.74 },
 
     -- ---------------------------------------------------------- mega storms
     -- Everything a storm does, turned up to 11, about twice a year at any

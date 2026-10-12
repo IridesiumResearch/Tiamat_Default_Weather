@@ -90,6 +90,7 @@ Before committing, check the licence headers and the sign-offs (see
 | `/weather drift` | Check the mirrored humidity against the Spindle's ground |
 | `/weather fires` | How many blazes and blocks are alight, and what lit them |
 | `/weather fire [at <x> <y> <z> \| out]` | Set alight what you are looking at, or the block at those coordinates; `out` puts every fire out |
+| `/weather wreck` | Put a crashed ship at one end of the rainbow you would see now (operators) |
 | `/weather strike` | A bolt at the column under your crosshair, or six blocks ahead of you |
 | `/weather stats` | The sampler's, queue's, particles' and fire's counts, to the server log |
 

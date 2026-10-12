@@ -460,8 +460,18 @@ wx.on_command("weather", function(player, args)
         return fire(player, args)
     elseif sub == "strike" then
         return strike(player)
+    elseif sub == "wreck" then
+        local no = refused(player)
+        if no then
+            return no
+        end
+        local s = wx.wreck.force(player)
+        if s == nil then
+            return "no open, level ground at either end of the bow to put a wreck on"
+        end
+        return string.format("a wreck at %d,%d,%d", s.x, s.y, s.z)
     end
-    return "usage: /weather [set <kind> [minutes] | clear | forecast | survey | mega | drift | clouds | stats | fires | fire [at x y z | out] | strike]"
+    return "usage: /weather [set <kind> [minutes] | clear | forecast | survey | mega | drift | clouds | stats | fires | fire [at x y z | out] | strike | wreck]"
 end)
 
 -- The drift check once per session, when the first player has joined and

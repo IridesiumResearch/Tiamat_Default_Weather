@@ -44,6 +44,7 @@ wx.queue = load("queue")
 wx.ground = load("ground")
 wx.fire = load("fire")           -- blazes: lit by lightning, lava, a command or an export; capped; rained out
 wx.fx = load("fx")
+wx.wreck = load("wreck")         -- a crashed ship at one end of a rainbow
 wx.commands = load("commands")
 load("exports")                  -- what other mods may read: game.exports("tiamat_weather")
 

@@ -470,7 +470,7 @@ struct Rig {
 // their names, never their flags.
 const SPINDLE_STANDIN: &str = "for _, id in ipairs({ 'dirt', 'packed_dirt', 'sand', 'snow', 'ice', 'clear_ice', \
     'permafrost', 'gravel', 'stone', 'mud', 'dried_mud', 'lava_rock', 'pumice', 'sulfur', 'obsidian', 'dark_sand', 'salt', 'oak_log', 'birch_log', 'grass', \
-    'oak_leaves', 'tall_grass', 'fern', 'fir_needles', 'fir_log', 'dead_log', 'heather', 'mulch', 'magma', 'lava', 'gorse' }) \
+    'oak_leaves', 'tall_grass', 'fern', 'fir_needles', 'fir_log', 'dead_log', 'heather', 'mulch', 'magma', 'lava', 'gorse', 'willow_planks' }) \
     do game.register_block{ id = id } end";
 
 // The stand-in Life (Life a1d016c): the three functions its exports.lua
@@ -725,6 +725,7 @@ fn main() {
     fog_check();
     night_storm_check();
     rainbow_check();
+    wreck_check();
     cloud_lift_check();
     plain_check();
     println!("all weather checks passed");
@@ -790,10 +791,10 @@ fn survey_check() {
     }
     let (falling, storm, clear) = (falling / n, storm / n, clear / n);
     println!("ok  survey: clear {clear:.0}% of the year, something falls {falling:.0}%, a storm {storm:.0}%, {wettest:.0}% at the wettest place");
-    assert!((55.0..=70.0).contains(&clear), "clear {clear:.0}% of the year, wanted about 60");
-    assert!((10.0..=25.0).contains(&falling), "it rains {falling:.0}% of the year");
-    assert!(storm <= 10.0, "it storms {storm:.0}% of the year");
-    assert!(wettest <= 40.0, "somewhere is wet {wettest:.0}% of the year");
+    assert!((65.0..=85.0).contains(&clear), "clear {clear:.0}% of the year, wanted about 73");
+    assert!((5.0..=15.0).contains(&falling), "it rains {falling:.0}% of the year");
+    assert!(storm <= 6.0, "it storms {storm:.0}% of the year");
+    assert!(wettest <= 30.0, "somewhere is wet {wettest:.0}% of the year");
 }
 
 // A forced storm over a warm square: HUD, bursts under the budget, one loop
@@ -2514,6 +2515,51 @@ fn rainbow_check() {
     assert_eq!(strength(&mut r), 0.0, "and it fades out");
     assert!(r.atmosphere.rainbows.lock().unwrap().get(&ALICE).is_some_and(|b| b.is_none()), "and the engine is told it has gone");
     println!("ok  rainbows: {after:.2} after the rain; none while it rains, under a roof, at night, or two minutes on");
+}
+
+// A wreck at the end of the rainbow (2026-10-12). On a morning, rain and
+// then a clear sky leave a bow; the wreck goes out along one of its ends,
+// 40 to 88 blocks off, planks and logs on open ground, and only once for
+// that rain. /weather wreck builds one on demand.
+fn wreck_check() {
+    let prelude = "wx_overrides = { RAINBOW_ODDS = 1 }";
+    let x = 0.5 * 59000.0;
+    let mut r = Rig::with(true, Arc::new(Storage::default()), prelude);
+    *r.sounds.tod.lock().unwrap() = Some(0.3);
+    let top = r.stand(ALICE, x, 100.0, "tiamat_default_world:dirt");
+    r.join(ALICE, x, f64::from(top + 1), 100.0);
+    r.tick(41);
+    r.say(ALICE, "/weather set rain 2");
+    r.tick(40 * 25);
+    let from = r.now;
+    r.say(ALICE, "/weather set clear 10");
+    r.tick(40 * 30);
+    let planks = "tiamat_default_world:willow_planks";
+    let built = r.edits_since(from);
+    let hull: Vec<_> = built.iter().filter(|e| e.2 == planks).collect();
+    assert!(hull.len() >= 20, "a hull of planks: {} plank edits of {}", hull.len(), built.len());
+    assert!(built.iter().any(|e| e.2 == "tiamat_default_world:oak_log"), "a keel and a mast");
+    assert!(built.iter().any(|e| e.2 == "tiamat_weather:charred_log"), "burnt boards");
+    let (sx, sz) = hull.iter().fold((0.0, 0.0), |a, e| (a.0 + f64::from(e.1.x), a.1 + f64::from(e.1.z)));
+    let (mx, mz) = (sx / hull.len() as f64, sz / hull.len() as f64);
+    let (dx, dz) = (mx - x, mz - 100.0);
+    let far = (dx * dx + dz * dz).sqrt();
+    assert!((30.0..=100.0).contains(&far), "40 to 88 blocks out: {far:.0}");
+    assert!(dx > 0.0, "in the morning the bow stands to +x, away from the sun: {dx:.0}, {dz:.0}");
+    assert!(hull.iter().all(|e| (e.1.y - top).abs() <= 2), "on the ground: hull at y {:?} over ground {top}", hull.iter().map(|e| e.1.y).collect::<std::collections::BTreeSet<_>>());
+    // The same rain again is the same rainbow: no second wreck.
+    let again = r.now;
+    r.say(ALICE, "/weather set rain 2");
+    r.tick(40 * 25);
+    r.say(ALICE, "/weather set clear 10");
+    r.tick(40 * 30);
+    let more = r.edits_since(again).iter().filter(|e| e.2 == planks).count();
+    assert_eq!(more, 0, "the region rests after a wreck: {more} plank edits");
+    // On demand.
+    let said = r.reply(ALICE, "/weather wreck");
+    assert!(said.starts_with("a wreck at"), "{said}");
+    r.tick(200);
+    println!("ok  wreck: {} edits, {} planks, its middle {far:.0} blocks out toward +x; none from the next rain; `{said}`", built.len(), hull.len());
 }
 
 fn life_check() {
