@@ -15,11 +15,15 @@
 -- position to build at. One end is drawn from the rain's own stream, and the
 -- wreck goes WRECK_DISTANCE blocks out along it, on open ground.
 --
--- **Built block by block, through the paced queue.** A `game.schematic` is
--- stamped only by `buf:scatter` while a chunk is generated, and a rainbow
--- comes long after its ground was made, so the wreck is a list in the same
--- shape — `{ dx, dy, dz, kind, mask }` — written by the queue a chunk at a
--- time. A runtime stamp is engine ask W35; the list is ready to hand to one.
+-- **A schematic, stamped at run time** (engine 75a0132e, ask W35). The hull is
+-- one `game.schematic`, built once from the materials as they resolve, and
+-- `game.stamp_schematic` writes it turned, paced with the plans, a few ticks
+-- for the whole ship. The chest is not in it: Craft registers after Weather
+-- loads, so its id is not known when the hull is built, and it goes in by
+-- itself through the queue — on a cell the hull does not write, so the two
+-- may land in either order. On an engine without the stamp, or if the engine
+-- will not take one now, the hull goes block by block through the queue as
+-- it did before.
 --
 -- **The loot is a Tiamat Default Craft chest**, when Craft is installed:
 -- its chest block, and the container Craft opens for it, named the way Craft
@@ -37,7 +41,7 @@ local queue = wx.queue
 
 local M = {}
 
-M.stats = { offered = 0, spawned = 0, no_site = 0, resting = 0, edits = 0, stocked = 0, unstocked = 0 }
+M.stats = { offered = 0, spawned = 0, stamped = 0, no_site = 0, resting = 0, edits = 0, stocked = 0, unstocked = 0 }
 
 local Y_WRAP = 1 << 30
 local CHUNK = 16
@@ -127,12 +131,40 @@ put(3, 1, 0, "chest")                                      -- the chest, aft
 M.SHIP = SHIP
 
 -- Turns an offset a quarter turn `r` times about the vertical.
+-- The stamp's own sense (engine W35): one turn takes +z to +x, so (dx, dz)
+-- becomes (dz, -dx). Kept the same everywhere here, so the site measured is
+-- the ship stamped and the chest lands inside it.
 local function turned(dx, dz, r)
-    if r == 1 then return -dz, dx
-    elseif r == 2 then return -dx, -dz
-    elseif r == 3 then return dz, -dx
+    for _ = 1, r do
+        dx, dz = dz, -dx
     end
     return dx, dz
+end
+
+local HAS_STAMP = type(game.stamp_schematic) == "function" and type(game.schematic) == "function"
+local hull = nil              -- the schematic, once built; false if it cannot be
+local function hull_schematic(m)
+    if hull ~= nil then
+        return hull or nil
+    end
+    hull = false
+    if not HAS_STAMP then
+        return nil
+    end
+    local list = {}
+    for _, b in ipairs(SHIP) do
+        local name = b[4] ~= "chest" and m[b[4]] or nil
+        if name then
+            list[#list + 1] = { b[1], b[2], b[3], game.get_block_id(name), b[5] or FULL }
+        end
+    end
+    local ok, made = pcall(game.schematic, list)
+    if ok and made then
+        hull = made
+    else
+        game.log("tiamat_weather: the wreck's schematic did not build: " .. tostring(made))
+    end
+    return hull or nil
 end
 
 -- ------------------------------------------------------------ where the bow ends
@@ -282,7 +314,19 @@ local function build(at, r, rng)
     if m.plank == nil then
         return false
     end
+    local schematic = hull_schematic(m)
+    local stamped = false
+    if schematic then
+        local ok, accepted = pcall(game.stamp_schematic, schematic, { x = at.x, y = at.y, z = at.z }, { turn = r })
+        stamped = ok and accepted == true
+        if stamped then
+            M.stats.stamped = M.stats.stamped + 1
+        end
+    end
     for _, b in ipairs(SHIP) do
+        if stamped and b[4] ~= "chest" then
+            goto continue
+        end
         local dx, dz = turned(b[1], b[3], r)
         local block = m[b[4]]
         if block ~= nil then
@@ -296,6 +340,7 @@ local function build(at, r, rng)
                 stock(pos, rng)
             end
         end
+        ::continue::
     end
     M.stats.spawned = M.stats.spawned + 1
     M.last = { x = at.x, y = at.y, z = at.z }

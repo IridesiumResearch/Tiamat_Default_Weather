@@ -1796,6 +1796,28 @@ function game.give(player, spec) end
 ---@param slots integer 1 to 256.
 function game.set_main_slots(slots) end
 
+---Makes a plain right-click deal in whole blocks. Registration window only,
+---and one grain for the server: a second mod naming a different one is an
+---error at load.
+---
+---Without this a right-click on a stack of loose material takes half of it
+---BY THE UNIT and a right-click with a stack held puts down one unit. With
+---`game.set_slot_grain(27)` the same clicks move whole blocks: a hundred
+---units of stone (3 blocks and 19 nodes) right-clicked takes two blocks to
+---the hand and leaves a block and the nineteen; a right-click with a stack
+---held puts down one block, or what is held when that is less. A cut of one
+---material then moves in whole cuts. **Shift with the right-click is the unit
+---gesture** — half by the unit, one unit down — so nothing a player could do
+---before is lost. Items and cuts of several materials move in whole items
+---whatever this says. `units` is the grain, 1 to 27; 27 is what a block game
+---wants.
+---
+---```lua
+---game.set_slot_grain(27)
+---```
+---@param units integer 1 to 27.
+function game.set_slot_grain(units) end
+
 ---What a player is holding: the stack in the hotbar slot they have selected.
 ---
 ---Returns nil for a player who is not connected or an empty slot, which are the
@@ -2016,6 +2038,35 @@ function game.update_dialog(spec) end
 ---@return boolean closed
 function game.close_dialog(spec) end
 
+---A line of yours under a stack's name, per player, wherever they hover a
+---stack of that material: an `item_slot`, an `item_grid`, any screen's.
+---
+---**Latest state, keyed by material.** The whole table replaces the last one
+---each call, so send it when what the player knows changes — what they have
+---researched, what they have made — and not per click; keyed by material
+---rather than by slot, it follows items as they move. Each key is a block id
+---(`"mod:name"`, or a bare name of your own) or the numeric material a stack
+---reports; each value is one line of at most 256 bytes, the tooltip's cap.
+---At most 256 lines. `nil` clears it.
+---
+---What to say is yours. The reference use is Craft's "Makes: Planks
+---(workbench, new), Sticks (by hand), …" — every recipe the material goes
+---into that the player may make, the ones they have never made first.
+---
+---Returns whether the player was there to be told.
+---
+---```lua
+---game.set_hover(uuid, {
+---    ["core:oak_log"] = "Makes: Planks (workbench, new), Sticks (by hand)",
+---    [stone] = "Makes: Cobble walls (by hand)",
+---})
+---game.set_hover(uuid, nil) -- nothing under any name
+---```
+---@param player string A player UUID in hex.
+---@param lines table<string|integer, string>? Material to line, or nil to clear.
+---@return boolean told
+function game.set_hover(player, lines) end
+
 ---# The shape editor
 ---
 ---`{ type = "shape_editor", shape = <mask>, material = <id> }` draws a block as
@@ -2062,14 +2113,25 @@ function game.close_dialog(spec) end
 ---  - `"toggled"` — `name`, `checked`
 ---  - `"slid"` — `name`, `value`
 ---  - `"chose"` — `name`, `index` (one-based)
----  - `"clicked"` — `view`, `index` (one-based), `click` ("left", "right", "shift_left")
+---  - `"clicked"` — `view`, `index` (one-based), `click` ("left", "right",
+---    "shift_left", "shift_right")
 ---  - `"chiselled"` — `name`, `shape` (the whole 27-bit mask), and `cells` (27
 ---    numeric ids, `0` for empty) from an editor of several materials
 ---  - `"closed"` — nothing else
+---  - `"dropped"` — `click` ("left", "right", "shift_right") and `stack`: the
+---    player clicked outside every open screen with a stack on the cursor,
+---    and this much of it has LEFT them — all of it on a left, one block (one
+---    whole item) on a right, one unit on a shift-right. `stack` is as
+---    `game.inventory` reports one (`material`, `units`, `shape`, `cells`,
+---    `detail`). What it becomes is yours — an item entity thrown along
+---    `facing`, a sale, nothing. **Return `true` to say you took it.** Return
+---    nothing and the engine puts it back on the cursor, so a screen that
+---    never thought about drops loses the player nothing.
 ---
 ---**Every one is a REQUEST, never a result.** A slot click says what the player
 ---did with the mouse; whether any item moves is the server's decision, taken
 ---against its own inventory. A client saying "I moved this" does not make it so.
+---A `"dropped"` is the one event with an answer the engine reads: `true`.
 ---
 ---**A button's `click` is which press it had**, and what each means is yours:
 ---ten for a click, one for a right-click, a stackful for a double. It is always
@@ -2078,7 +2140,7 @@ function game.close_dialog(spec) end
 ---coming without making every button wait to answer. So on `"double"`, do what
 ---is left of the larger thing rather than the whole of it again. A right-click
 ---presses a button; a mod that never reads `click` treats it as a press.
----@param callback fun(event: { player: string, form: string, kind: string, name: string?, text: string?, checked: boolean?, value: integer?, index: integer?, view: string?, click: string?, shape: integer?, cells: integer[]? })
+---@param callback fun(event: { player: string, form: string, kind: string, name: string?, text: string?, checked: boolean?, value: integer?, index: integer?, view: string?, click: string?, shape: integer?, cells: integer[]?, stack: table? }): boolean?
 function game.register_on_dialog_event(callback) end
 
 ---Registers a sound. Registration window only.
@@ -2452,6 +2514,12 @@ function game.is_operator(player) end
 ---player does not rubber-band. An unknown field is an error, so a typo is not a
 ---setting you think you made. Forgotten when the player leaves.
 ---
+---**`operator_fly`** (Life ask 22): whether the server's operator list may
+---grant this player flight over your grant. It may, unless you say `false`;
+---then `fly` is the whole answer for this player, operator or not. A survival
+---world sends `operator_fly = false` to everybody and `fly = true` to the one
+---who has taken their powers in front of the server.
+---
 ---Returns `false` for a player who is not here.
 ---
 ---```lua
@@ -2464,7 +2532,7 @@ function game.is_operator(player) end
 ---})
 ---```
 ---@param player string The player's UUID, in hex.
----@param abilities { fly: boolean?, speed: number?, sprint: boolean?, wind_sky: boolean?, gravity: number? }|nil
+---@param abilities { fly: boolean?, operator_fly: boolean?, speed: number?, sprint: boolean?, wind_sky: boolean?, gravity: number? }|nil
 ---@return boolean told
 function game.set_player_abilities(player, abilities) end
 
@@ -4111,7 +4179,8 @@ function game.density(spec) end
 ---point is on and how far — a coastline, land where it is positive and the
 ---cliff rising over its first few blocks.
 
----A structure built once, from a list of blocks, for `buf:scatter` to stamp.
+---A structure built once, from a list of blocks, for `buf:scatter` to stamp —
+---or `game.stamp_schematic`, at run time.
 ---
 ---Each block is `{dx, dy, dz, material, mask}`: an offset from the root in
 ---blocks, a numeric material id, and a 27-bit mask of the cells written
@@ -4166,7 +4235,51 @@ function game.schematic(blocks) end
 ---@return Tiamat.Schematic
 function game.schematic_shapes(shapes) end
 
----A structure for `buf:scatter`. See `game.schematic`.
+---Writes a schematic into the running world with its root at `pos`, turned,
+---paced across ticks — the structure a generator scatters, built once at load,
+---stamped by an event long after the ground was made: a wreck at the end of a
+---rainbow, a ruin a quest uncovers.
+---
+---**Written as `buf:scatter` writes it.** A block whose mask is whole replaces
+---the block there (air clears it); a partial mask sets the cells it names and
+---keeps every other cell the block held — a merge write, so a hull's keel sits
+---IN the ground rather than in a footprint of air. Air in a partial mask
+---carves those cells. Blocks go in the order you listed them, so a later block
+---lands over an earlier one at the same place. A `whole` material is written
+---as its own shape with a whole mask; a partial mask of one writes nothing
+---(Sub-Node Contract §7.5).
+---
+---**`turn` is 0 to 3 quarter turns about the vertical through the root**,
+---default 0. One turn takes `+z` to `+x` and `+x` to `-z` — the way a shape
+---placed facing east turns — so an offset `(dx, dz)` becomes `(dz, -dx)`, and
+---every mask turns with its block: cell `(x, y, z)` becomes `(z, y, 2 - x)`.
+---Four turns are none.
+---
+---`domain` is the space, defaulting to `pos.domain` and then the overworld.
+---
+---Returns whether the stamp was ACCEPTED, as `game.plans.stamp` does: the
+---engine paces it with the plans, a few hundred blocks a tick, so a structure
+---of a few hundred blocks lands within a few ticks and one of thousands builds
+---itself over a second or two. `false` when there is no world yet (worldgen,
+---registration) or too many stamps are already waiting — wait and ask again.
+---
+---A mistake is an error naming the field: a `turn` that is not 0 to 3, a
+---`domain` that names no domain, an option it does not know, a `pos` that is
+---not whole blocks, or a `schematic` that did not come from `game.schematic` or
+---`game.schematic_shapes`.
+---
+---```lua
+---local WRECK = game.schematic(blocks)          -- once, at load
+---game.stamp_schematic(WRECK, { x = 120, y = 64, z = -40 }, { turn = rng:below(4) })
+---```
+---@param schematic Tiamat.Schematic From `game.schematic` or `game.schematic_shapes`.
+---@param pos { x: integer, y: integer, z: integer, domain: string? } Where the root block goes.
+---@param options { domain: string?, turn: integer? }?
+---@return boolean accepted
+function game.stamp_schematic(schematic, pos, options) end
+
+---A structure for `buf:scatter` and `game.stamp_schematic`. See
+---`game.schematic`.
 ---@class Tiamat.Schematic
 local Schematic = {}
 

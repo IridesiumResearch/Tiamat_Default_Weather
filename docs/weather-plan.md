@@ -1624,3 +1624,9 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   schematic stamp) filed; W36 (a puddle drawn as a full block: the glass
   pass on wet cells) filed and landed the same day, engine 3394bdb3; W37
   (the sun drawn as a dark disc) filed.
+- **Engine asks landed:** W34 (Simple's deck follows the sky, ae2dbece), W35
+  (`game.stamp_schematic`, 75a0132e) and W37 (the sun's disc at its own
+  brightness, b37bfa5e). The wreck's hull is now one `game.schematic`,
+  stamped turned; the chest still goes in by itself, since Craft's ids are
+  not known when the hull is built; the queue is the fallback on an engine
+  without the stamp.
