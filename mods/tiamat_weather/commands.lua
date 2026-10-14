@@ -294,6 +294,10 @@ local function clouds(player)
     if pos == nil or was == nil then
         return "no clouds sent to you yet; they follow the first weather evaluation"
     end
+    if was.hidden then
+        return string.format("no clouds drawn: you are %s, where nothing would show them; they come back as you leave", was.hidden)
+            .. string.format("; rainbow %.2f", wx.fx.rainbow_sent[player] or 0)
+    end
     return string.format("cover %.2f, darkness %.2f, floor at y %d (%d blocks over you); %s; %s; cloud detail is your own graphics setting",
         was.cover, was.darkness, was.base, was.base - math.floor(pos.y),
         was.stratocumulus and string.format("stratocumulus %.2f, altocumulus %.2f, cumulonimbus %.2f",

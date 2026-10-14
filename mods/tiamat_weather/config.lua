@@ -164,6 +164,12 @@ return {
     CLOUD_TOWERS = 0.2,         -- how much taller the highest heaps grow
     CLOUD_EVOLVE = 1 / 2400,    -- how fast the shape changes, per second
     CLOUD_EASE_TICKS = 600,     -- how long a change of cover takes on the client
+    -- No deck where it cannot be seen (2026-10-14, "not draw clouds when
+    -- under water"). The client marches the deck behind the water's fog and
+    -- behind a cave's rock alike, at full cost; an empty sky marches nothing.
+    CLOUD_HIDE_UNDERWATER = true,   -- the whole body in fluid
+    CLOUD_HIDE_UNDERGROUND = true,  -- no sunlight at all at the head
+    CLOUD_HIDE_TICKS = 5,       -- ticks between looks, so surfacing brings the sky back within a quarter second
     CLOUD_MAP_SIZE = 16,        -- the cover map around a player, in squares a side (engine max 16)
     CLOUD_MAP_TICKS = 400,      -- how stale a square nobody is in may be before its weather is asked again
     -- The floor stands higher where the ground does. The Spindle's Crown has

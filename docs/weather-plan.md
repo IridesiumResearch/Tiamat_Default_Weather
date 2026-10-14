@@ -1639,3 +1639,17 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   `stubs/game.lua` and `AGENTS.md` from the engine's `api/` at main
   6a9c56bf — `game.api_version`, the deprecation rule, and "Reference, by
   area". Nothing in the mod changes.
+- **Conformance in CI** (milestone item A3): `.github/workflows/conform.yml`,
+  the engine's `scripts/conform.sh` against its `main` on every push and
+  nightly.
+- **Wx-C1 answered** (Craft 452d034): a chest's container name is stable and
+  documented for other mods to fill.
+- **No deck where it cannot be seen.** The client marches the deck behind
+  the water's fog and a cave's rock at full cost, and clips its march to
+  the most of each genus it was sent, so a player wholly under water (the
+  body's `submerged` at 1) or with no sunlight at the head is sent an empty
+  sky and no map: nothing marched. Looked at every `CLOUD_HIDE_TICKS = 5`
+  rather than with the weather, so the deck is back, uneased, within a
+  quarter second of surfacing or reaching a tunnel's lit end. Each half
+  has its switch (`CLOUD_HIDE_UNDERWATER`, `CLOUD_HIDE_UNDERGROUND`). Not
+  measured on a card; the saving is the whole deck, in those places only.

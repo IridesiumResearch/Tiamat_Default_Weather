@@ -951,15 +951,43 @@ fn weather_check(storage: Arc<Storage>) -> String {
     assert!(r.rain_of(ALICE).is_none(), "no rain in a cave");
     assert_cave_sky(&r, ALICE, "in a cave");
     assert!(r.sounds.stops.lock().unwrap().len() > stops, "nor its loop");
-    assert!(r.clouds_of(ALICE).is_some(), "the clouds stay set for when they come out");
+    // No deck in a cave (2026-10-14): an empty sky and no map, so the client
+    // marches nothing behind the rock.
+    let hidden = r.clouds_of(ALICE).expect("an empty sky is sent, not none");
+    assert!(hidden.cover == 0.0 && hidden.darkness == 0.0 && hidden.stratocumulus == 0.0 && hidden.cumulonimbus == 0.0 && hidden.ease_ticks == 0,
+        "no deck in a cave: {hidden:?}");
+    assert!(r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().is_none(), "and no cover map");
+    assert!(r.reply(ALICE, "/weather clouds").contains("you are underground"));
     r.world.roofs.lock().unwrap().retain(|c| *c != head);
     let loops = r.sounds.loops.lock().unwrap().len();
-    r.tick(41);
+    // The deck is looked at every few ticks, not with the weather: back
+    // within a quarter second, and at once rather than eased in.
+    r.tick(6);
+    let deck = r.clouds_of(ALICE).expect("the storm's clouds again");
+    assert!(deck.cover > 0.0 && deck.cumulonimbus > 0.0 && deck.ease_ticks == 0, "the deck back at once: {deck:?}");
+    assert!(r.atmosphere.maps.lock().unwrap().get(&ALICE).cloned().flatten().is_some(), "with its map");
+    r.tick(35);
     let back = r.sky_of(ALICE).expect("out of the cave, the storm's sky again");
     assert!(back.fog_distance < 0.4, "{back:?}");
     assert!(r.rain_of(ALICE).is_some(), "and its rain");
     assert!(r.sounds.loops.lock().unwrap().len() > loops, "and its loop");
-    println!("ok  underground: no rain, fog or loop; back out, all three return");
+    println!("ok  underground: no rain, fog, loop or deck; back out, all four return, the deck within a quarter second");
+
+    // Under water the deck goes too (2026-10-14), by the body's own
+    // `submerged`: wholly under, none; a head above the surface, all of it.
+    r.entities.0.lock().unwrap().get_mut(&ALICE).unwrap().submerged = 1.0;
+    r.tick(6);
+    let wet = r.clouds_of(ALICE).expect("an empty sky under water");
+    assert!(wet.cover == 0.0 && wet.cumulonimbus == 0.0, "no deck under water: {wet:?}");
+    assert!(r.reply(ALICE, "/weather clouds").contains("you are underwater"));
+    r.tick(41);
+    assert_eq!(r.clouds_of(ALICE).unwrap().cover, 0.0, "an evaluation under water sends no deck");
+    r.entities.0.lock().unwrap().get_mut(&ALICE).unwrap().submerged = 0.6;
+    r.tick(6);
+    let up = r.clouds_of(ALICE).expect("the deck again");
+    assert!(up.cover > 0.0 && up.ease_ticks == 0, "a head out of the water sees the deck at once: {up:?}");
+    r.entities.0.lock().unwrap().get_mut(&ALICE).unwrap().submerged = 0.0;
+    println!("ok  under water: no deck while wholly under; surfacing brings it back at once");
 
     // The bottom of a shaft: daylight falls straight down it at full
     // strength, but the ground stands thirty blocks over the head on every

@@ -155,6 +155,8 @@ M.stats = {
     strikes_grounded = 0, strikes_roofed = 0, strikes_unseen = 0, bolts_drawn = 0, ignitions = 0, scorches = 0, set_alight = 0, player_strikes = 0,
     -- Fire, presented.
     fire_loops = 0, smoke = 0, rainbows = 0,
+    -- The deck taken away under water or underground.
+    clouds_hidden = 0,
 }
 
 -- ------------------------------------------------------------ one player's weather
@@ -1216,6 +1218,73 @@ local function clouds_for(uuid, where, square, was)
     M.stats.clouds = M.stats.clouds + 1
 end
 
+-- **No deck where it cannot be seen** (2026-10-14). The client marches the
+-- deck every frame whether anything shows it or not: under water the fog
+-- hides the sky a few blocks off, and in a cave the rock does, and the march
+-- runs at full cost behind both. It clips the march to a slab as tall as
+-- the most of each genus it has been sent, so an empty sky with no map
+-- marches nothing. Under water is the whole body in fluid (the engine's own
+-- `submerged`, which is what put the camera there); underground is no
+-- sunlight at the head at all, which a cave mouth or a tunnel's last
+-- fifteen blocks never are, so the sky is back before the sky can be seen.
+-- Looked at every CLOUD_HIDE_TICKS rather than with the weather, which is
+-- two seconds apart: a sky that came back two seconds after surfacing would
+-- be seen arriving.
+local function deck_hidden(uuid)
+    local body = game.player_entity(uuid)
+    local me = body and game.entity(body)
+    if me == nil then
+        return nil
+    end
+    if config.CLOUD_HIDE_UNDERWATER and (me.submerged or 0) >= 1 then
+        return "underwater"
+    end
+    if config.CLOUD_HIDE_UNDERGROUND then
+        local head = { x = math.floor(me.pos.x), y = math.floor(me.pos.y + 1.6), z = math.floor(me.pos.z) }
+        if game.get_light(head).sun <= 0 then
+            return "underground"
+        end
+    end
+    return nil
+end
+
+local hide_wait = 0
+
+local function hide_decks(dt_ticks)
+    if not HAS_CLOUDS then
+        return
+    end
+    hide_wait = hide_wait - dt_ticks
+    if hide_wait > 0 then
+        return
+    end
+    hide_wait = config.CLOUD_HIDE_TICKS
+    for _, uuid in ipairs(controller.players()) do
+        local was = sent[uuid]
+        local where = controller.where[uuid]
+        local square = where and controller.squares[where.key]
+        -- Only a player with a sky of the weather's: none yet, or off the
+        -- overworld, is left alone.
+        if was and not was.away and square and square.kind and (was.clouds or was.hidden) then
+            local why = deck_hidden(uuid)
+            if why and not was.hidden then
+                was.hidden = why
+                -- Forgotten, so the sky coming back is a first sky: at once.
+                was.clouds = nil
+                game.set_clouds(uuid, { cover = 0, darkness = 0, ease_ticks = 0 })
+                M.clouds_sent[uuid] = { cover = 0, darkness = 0, base = was.base or floor_at(where.x, where.y, where.z), hidden = why }
+                M.stats.clouds_hidden = M.stats.clouds_hidden + 1
+            elseif why then
+                was.hidden = why
+                M.clouds_sent[uuid].hidden = why
+            elseif was.hidden then
+                was.hidden = nil
+                clouds_for(uuid, where, square, was)
+            end
+        end
+    end
+end
+
 -- ------------------------------------------------------------ the tick
 
 -- How much of the sky a player's head is under, 0 to 15: the sun there, and
@@ -1314,7 +1383,7 @@ controller.on_evaluated(function()
             sky_for(uuid, square, exposure, was)
             loop_for(uuid, square, exposure, was)
             rainbow_for(uuid, square, exposure, tick)
-            if HAS_CLOUDS then
+            if HAS_CLOUDS and not was.hidden then
                 clouds_for(uuid, where, square, was)
             end
             -- Storms strike, and so does anything a mega storm has hold of:
@@ -1337,8 +1406,8 @@ controller.on_evaluated(function()
             end
             send_sky(uuid, was, nil)
             rainbow_for(uuid, { kind = "clear", intensity = 0 }, 0, tick)
-            if HAS_CLOUDS and was.clouds then
-                was.clouds, was.base = nil, nil
+            if HAS_CLOUDS and (was.clouds or was.hidden) then
+                was.clouds, was.base, was.hidden = nil, nil, nil
                 game.set_clouds(uuid, nil)
                 M.clouds_sent[uuid] = nil
             end
@@ -1353,6 +1422,7 @@ wx.on_tick(function(dt_ticks)
     thunder(wx.now)
     flicker(wx.now)
     fires_seen(dt_ticks)
+    hide_decks(dt_ticks)
 end)
 
 -- A player who leaves takes their settings with them; one who rejoins is on
