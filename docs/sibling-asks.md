@@ -11,7 +11,13 @@ of Weather, and Weather's answers, are in `exports-contract.md`.
 
 ## Tiamat Default Craft
 
-### Wx-C1. A chest another mod may fill (2026-10-12): OPEN
+### Wx-C1. A chest another mod may fill (2026-10-12): ANSWERED 2026-10-14 (Craft 452d034)
+
+**Answered.** Craft's `docs/exports.md` ("Containers") now says a chest's
+container, `tiamat_default_craft:chest:x,y,z` (27 slots, `<domain>@` before
+the position off the overworld), is a stable name another mod may fill, and
+that a change to it will be said there and to every mod relying on it.
+Nothing changes on this side: the wreck already fills it that way.
 
 **Wanted.** A wreck at the end of a rainbow (`wreck.lua`) holds a little
 gold and some loot in one of Craft's chests, so a player opens it with the

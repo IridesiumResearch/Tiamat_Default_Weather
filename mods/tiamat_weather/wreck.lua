@@ -30,8 +30,9 @@
 -- names a chest's (`tiamat_default_craft:chest:x,y,z`, its stations.lua).
 -- Craft loads after Weather (it names Weather in its optional_depends, and
 -- the engine refuses a cycle), so there is no export to call; the name is
--- the contract, and it is asked of Craft as a sibling ask (Wx-C1) to export
--- one. Without Craft the wreck has no chest.
+-- the contract, and Craft documents it as stable for other mods to fill
+-- (its docs/exports.md, "Containers"; sibling ask Wx-C1, answered in Craft
+-- 452d034). Without Craft the wreck has no chest.
 
 local config = wx.config
 local climate = wx.climate

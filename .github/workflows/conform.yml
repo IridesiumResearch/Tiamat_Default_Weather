@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Iridesium
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The engine's conformance run (milestone 0.5.0, A3; the engine's
+# docs/mod-conformance.md): --check-mods, then a real server with the fixture
+# bot joining, beside the default mods bundle.toml pins, against the engine's
+# main. Fails if the weather mod, or any mod beside it, is disabled.
+
+name: conform
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Once a day against the engine's main, so a change there that breaks
+    # this mod is seen the day it lands rather than the day someone pushes.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  conform:
+    name: conform against the engine's main
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: mod
+
+      - uses: actions/checkout@v5
+        with:
+          repository: IridesiumResearch/Tiamat-Voxel-Game
+          path: engine
+
+      # Honours the engine's rust-toolchain.toml.
+      - name: Install Rust
+        working-directory: engine
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      - name: Conformance
+        working-directory: engine
+        run: bash scripts/conform.sh ../mod/mods/tiamat_weather
