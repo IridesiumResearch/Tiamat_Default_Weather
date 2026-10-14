@@ -1630,3 +1630,12 @@ way the strong heaps overlap into banks, which is what a big cloud is.
   stamped turned; the chest still goes in by itself, since Craft's ids are
   not known when the hull is built; the queue is the fallback on an engine
   without the stamp.
+
+### 10.24 The eye, and API 1.0 (2026-10-14)
+
+- **The eye passed** every gate awaiting it on the engine sheet but the
+  rainbow's (W30, still open): W25, W26, W29, W31, W32, W33, W34, W36, W37.
+- **The vendored API re-vendored at 1.0** (milestone 0.5.0, item A4):
+  `stubs/game.lua` and `AGENTS.md` from the engine's `api/` at main
+  6a9c56bf — `game.api_version`, the deprecation rule, and "Reference, by
+  area". Nothing in the mod changes.
